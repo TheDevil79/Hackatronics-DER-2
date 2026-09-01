@@ -14,6 +14,16 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(SimulationNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSimulationNotFound(SimulationNotFoundException ex) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                ex.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
     @ExceptionHandler(InvalidSimulationRequestException.class)
     public ResponseEntity<ErrorResponse> handleInvalidSimulationRequest(InvalidSimulationRequestException ex) {
         ErrorResponse errorResponse = new ErrorResponse(

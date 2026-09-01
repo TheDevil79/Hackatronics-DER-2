@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safezone.ai/schemas/simulation-request.schema.json",
+  "title": "SafeZoneSimulationRequest",
+  "description": "CANONICAL SOURCE OF TRUTH: Input payload for SafeZone AI threat-zone simulation from Frontend (AR) -> Backend (Vaibhav) -> Simulation Engine (Deep).",
+  "type": "object",
+  "required": [
+    "facility",
+    "incident",
+    "wind",
+    "environment",
+    "simulationConfig"
+  ],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "description": "Unique client-generated or server-generated tracking ID for the simulation run."
+    },
+    "facility": {
+      "type": "object",
+      "description": "Facility metadata, geographic anchor, assets, evacuation routes, and blockages.",
+      "required": ["facilityId", "name", "location", "assets"],
+      "properties": {
+        "facilityId": { "type": "string" },
+        "name": { "type": "string" },
+        "location": {
+          "type": "object",
+          "description": "Geographic anchor point corresponding to local Cartesian coordinate origin (0, 0, 0). Latitude/longitude are used ONLY for geographic placement and mapping.",
+          "required": ["latitude", "longitude"],
+          "properties": {
+            "latitude": { "type": "number", "minimum": -90.0, "maximum": 90.0 },
+            "longitude": { "type": "number", "minimum": -180.0, "maximum": 180.0 },
+            "elevationMeters": { "type": "number", "default": 0.0 }
+          }
+        },
+        "boundary": {
+          "type": "object",
+          "description": "Local facility bounding dimensions or perimeter polygon in meters relative to facility origin.",
+          "properties": {
+            "widthMeters": { "type": "number", "minimum": 1.0 },
+            "lengthMeters": { "type": "number", "minimum": 1.0 },
+            "polygon": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number", "description": "Meters east (+) of facility origin." },
+                  "y": { "type": "number", "description": "Meters north (+) of facility origin." }
+                }
+              }
+            }
+          }
+        },
+        "assets": {
+          "type": "array",
+          "description": "List of physical assets, tanks, structures, shelters, and exits located inside the facility.",
+          "items": {
+            "type": "object",
+            "required": ["assetId", "name", "type", "position"],
+            "properties": {
+              "assetId": { "type": "string" },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "description": "Asset category. Physical barriers and walls are represented in facility.blockages, not in assets.",
+                "enum": [
+                  "TANK",
+                  "MACHINERY",
+                  "BUILDING",
+                  "STORAGE_AREA",
+                  "SHELTER",
+                  "EXIT"
+                ]
+              },
+              "position": {
+                "type": "object",
+                "description": "Local 3D position in meters relative to facility origin (0,0,0).",
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number", "description": "Meters east (+) / west (-) of facility origin." },
+                  "y": { "type": "number", "description": "Meters north (+) / south (-) of facility origin." },
+                  "z": { "type": "number", "default": 0.0, "description": "Meters above local ground level." }
+                }
+              },
+              "dimensions": {
+                "type": "object",
+                "description": "Physical asset footprint and vertical dimensions in meters.",
+                "properties": {
+                  "length": { "type": "number", "minimum": 0.1 },
+                  "width": { "type": "number", "minimum": 0.1 },
+                  "height": { "type": "number", "minimum": 0.1 },
+                  "diameter": { "type": "number", "minimum": 0.1 }
+                }
+              },
+              "tankProperties": {
+                "type": "object",
+                "description": "Thermodynamic and material properties when type == TANK.",
+                "properties": {
+                  "material": {
+                    "type": "string",
+                    "enum": [
+                      "PROPANE",
+                      "LPG",
+                      "METHANE",
+                      "GASOLINE",
+                      "DIESEL",
+                      "CRUDE_OIL",
+                      "HYDROGEN",
+                      "AMMONIA",
+                      "ETHANOL",
+                      "CUSTOM"
+                    ]
+                  },
+                  "capacityM3": { "type": "number", "minimum": 0.1, "description": "Total vessel capacity in cubic meters." },
+                  "fillLevelPercentage": { "type": "number", "minimum": 0.0, "maximum": 100.0, "description": "Fill percentage (0-100%)." },
+                  "operatingPressureBar": { "type": "number", "minimum": 0.1, "default": 1.013, "description": "Storage pressure in bar (1 bar = 100 kPa)." },
+                  "operatingTemperatureC": { "type": "number", "default": 25.0, "description": "Storage temperature in °C." },
+                  "containmentDike": { "type": "boolean", "default": false, "description": "Whether secondary containment dike/bund is present." }
+                }
+              }
+            }
+          }
+        },
+        "escapeRoutes": {
+          "type": "array",
+          "description": "Designated emergency evacuation pathways.",
+          "items": {
+            "type": "object",
+            "required": ["routeId", "name", "points"],
+            "properties": {
+              "routeId": { "type": "string" },
+              "name": { "type": "string" },
+              "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["x", "y"],
+                  "properties": {
+                    "x": { "type": "number", "description": "Meters east (+) of facility origin." },
+                    "y": { "type": "number", "description": "Meters north (+) of facility origin." }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "blockages": {
+          "type": "array",
+          "description": "Barriers, firewalls, blast walls, or berms that provide geometric shielding or attenuation.",
+          "items": {
+            "type": "object",
+            "required": ["blockageId", "type", "points"],
+            "properties": {
+              "blockageId": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["BLAST_WALL", "FIREWALL", "BERM", "SECURITY_FENCE", "BUILDING_SHIELD"]
+              },
+              "attenuationFactor": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5, "description": "Estimated fractional reduction in transmitted blast/radiation flux (0.0 to 1.0)." },
+              "heightMeters": { "type": "number", "minimum": 0.5 },
+              "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["x", "y"],
+                  "properties": {
+                    "x": { "type": "number", "description": "Meters east (+) of facility origin." },
+                    "y": { "type": "number", "description": "Meters north (+) of facility origin." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "incident": {
+      "type": "object",
+      "description": "Initiating incident specification.",
+      "required": ["sourceAssetId", "incidentType"],
+      "properties": {
+        "sourceAssetId": { "type": "string", "description": "Asset ID where the failure or fire/explosion originates." },
+        "incidentType": {
+          "type": "string",
+          "enum": [
+            "VAPOR_CLOUD_EXPLOSION",
+            "BLEVE",
+            "POOL_FIRE",
+            "JET_FIRE",
+            "FLASH_FIRE",
+            "TOXIC_RELEASE"
+          ]
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Physical parameters for the incident model.",
+          "properties": {
+            "fuelMassKg": { "type": "number", "minimum": 1.0, "description": "Total fuel mass participating in the combustion/dispersion in kg." },
+            "tntEquivalentMassKg": {
+              "type": "number",
+              "minimum": 0.1,
+              "description": "Unambiguous TNT-equivalent mass in kilograms (kg). The simulation engine converts this to blast energy E = m_TNT * 4.184e6 J for Sedov-Taylor calculations."
+            },
+            "firePoolDiameterMeters": { "type": "number", "minimum": 0.5, "description": "Effective pool fire diameter in meters for thermal radiation flux modeling." },
+            "releaseDurationSeconds": { "type": "number", "minimum": 1.0, "default": 60.0, "description": "Duration of release/fire in seconds." },
+            "orificeDiameterMm": { "type": "number", "minimum": 1.0, "description": "Orifice diameter for pressurized gas jet releases." }
+          }
+        }
+      }
+    },
+    "wind": {
+      "type": "object",
+      "description": "Atmospheric wind condition vector.",
+      "required": ["speedMps", "directionDegreesFromNorth"],
+      "properties": {
+        "speedMps": { "type": "number", "minimum": 0.0, "description": "Wind speed in meters per second (m/s)." },
+        "directionDegreesFromNorth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 360.0,
+          "description": "METEOROLOGICAL 'FROM' DIRECTION: Azimuth in degrees clockwise from True North (0-360) FROM which the wind blows. 0° = wind blowing from North to South, 90° = wind blowing from East to West, 112.5° = wind blowing from ESE to WNW, 180° = wind blowing from South to North, 270° = wind blowing from West to East."
+        },
+        "directionCompass": { "type": "string", "description": "Optional human-readable cardinal/intercardinal direction label (e.g. 'ESE', 'NNW')." },
+        "unit": { "type": "string", "enum": ["METRIC"], "default": "METRIC" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "description": "Ambient atmospheric and environmental boundary conditions.",
+      "required": ["ambientTemperatureC"],
+      "properties": {
+        "ambientTemperatureC": { "type": "number", "default": 25.0, "description": "Ambient air temperature in °C." },
+        "relativeHumidityPercentage": { "type": "number", "minimum": 0.0, "maximum": 100.0, "default": 50.0, "description": "Relative humidity percentage." },
+        "atmosphericPressureKPa": { "type": "number", "default": 101.325, "description": "Ambient atmospheric pressure in kPa." },
+        "stabilityClass": {
+          "type": "string",
+          "enum": ["A", "B", "C", "D", "E", "F"],
+          "default": "D",
+          "description": "Pasquill-Gifford atmospheric stability class (A=very unstable, D=neutral, F=very stable)."
+        },
+        "solarRadiationWm2": { "type": "number", "default": 0.0, "description": "Solar insolation in W/m²." }
+      }
+    },
+    "simulationConfig": {
+      "type": "object",
+      "description": "Simulation control parameters and module toggles.",
+      "required": ["thermalCalculationEnabled", "blastCalculationEnabled", "dominoAnalysisEnabled"],
+      "properties": {
+        "thermalCalculationEnabled": { "type": "boolean", "default": true },
+        "blastCalculationEnabled": { "type": "boolean", "default": true },
+        "dominoAnalysisEnabled": { "type": "boolean", "default": true },
+        "gridResolutionMeters": { "type": "number", "minimum": 0.5, "default": 2.0, "description": "Calculation spatial resolution in meters." },
+        "timeHorizonSeconds": { "type": "number", "minimum": 10.0, "default": 300.0, "description": "Time window in seconds for domino cascade evaluation." }
+      }
+    }
+  }
+}

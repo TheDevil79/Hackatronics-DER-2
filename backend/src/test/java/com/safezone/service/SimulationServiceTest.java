@@ -1,9 +1,9 @@
 package com.safezone.service;
 
+import com.safezone.dto.ApproachDirectionDto;
 import com.safezone.dto.AssetDimensionsDto;
 import com.safezone.dto.AssetDto;
 import com.safezone.dto.AssetType;
-import com.safezone.dto.ApproachDirectionDto;
 import com.safezone.dto.FacilityBoundaryDto;
 import com.safezone.dto.FacilityDto;
 import com.safezone.dto.IncidentDto;
@@ -18,6 +18,8 @@ import com.safezone.dto.SimulationResponseDto;
 import com.safezone.dto.TankPropertiesDto;
 import com.safezone.dto.WindDto;
 import com.safezone.exception.InvalidSimulationRequestException;
+import com.safezone.exception.SimulationNotFoundException;
+import com.safezone.repository.SimulationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -42,11 +45,14 @@ class SimulationServiceTest {
     @Mock
     private SimulationEngine simulationEngine;
 
+    @Mock
+    private SimulationRepository simulationRepository;
+
     private SimulationService simulationService;
 
     @BeforeEach
     void setUp() {
-        simulationService = new SimulationService(simulationEngine);
+        simulationService = new SimulationService(simulationEngine, simulationRepository);
     }
 
     private SimulationRequestDto createValidRequestDto(String requestId, String sourceAssetId) {
@@ -105,7 +111,7 @@ class SimulationServiceTest {
     }
 
     @Test
-    @DisplayName("runSimulation validates and orchestrates request successfully")
+    @DisplayName("runSimulation validates, executes via engine, stores in repository, and returns response")
     void testRunSimulationSuccess() {
         SimulationRequestDto request = createValidRequestDto("req-custom-001", "T-101");
 
@@ -125,6 +131,7 @@ class SimulationServiceTest {
         );
 
         when(simulationEngine.simulate(any(SimulationRequestDto.class))).thenReturn(expectedResponse);
+        when(simulationRepository.save(any(SimulationResponseDto.class))).thenReturn(expectedResponse);
 
         SimulationResponseDto actualResponse = simulationService.runSimulation(request);
 
@@ -135,6 +142,8 @@ class SimulationServiceTest {
         ArgumentCaptor<SimulationRequestDto> captor = ArgumentCaptor.forClass(SimulationRequestDto.class);
         verify(simulationEngine).simulate(captor.capture());
         assertEquals("req-custom-001", captor.getValue().requestId());
+
+        verify(simulationRepository).save(expectedResponse);
     }
 
     @Test
@@ -158,6 +167,7 @@ class SimulationServiceTest {
         );
 
         when(simulationEngine.simulate(any(SimulationRequestDto.class))).thenReturn(mockResponse);
+        when(simulationRepository.save(any(SimulationResponseDto.class))).thenReturn(mockResponse);
 
         simulationService.runSimulation(request);
 
@@ -165,6 +175,8 @@ class SimulationServiceTest {
         verify(simulationEngine).simulate(captor.capture());
         assertNotNull(captor.getValue().requestId());
         assertTrue(captor.getValue().requestId().startsWith("req-"));
+
+        verify(simulationRepository).save(mockResponse);
     }
 
     @Test
@@ -229,5 +241,40 @@ class SimulationServiceTest {
                 () -> simulationService.runSimulation(request)
         );
         assertTrue(ex.getMessage().contains("NON-EXISTENT-TANK"));
+    }
+
+    @Test
+    @DisplayName("getSimulation returns simulation response when found in repository")
+    void testGetSimulationFound() {
+        SimulationResponseDto expectedResponse = new SimulationResponseDto(
+                "sim-200",
+                "req-200",
+                "2026-09-01T12:00:00Z",
+                140.0,
+                "HIGH",
+                65.0,
+                "Summary",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                null
+        );
+
+        when(simulationRepository.findBySimulationId("sim-200")).thenReturn(Optional.of(expectedResponse));
+
+        SimulationResponseDto actualResponse = simulationService.getSimulation("sim-200");
+        assertNotNull(actualResponse);
+        assertEquals("sim-200", actualResponse.simulationId());
+    }
+
+    @Test
+    @DisplayName("getSimulation throws SimulationNotFoundException when ID is not found or blank")
+    void testGetSimulationNotFound() {
+        when(simulationRepository.findBySimulationId("unknown-id")).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () -> simulationService.getSimulation("unknown-id"));
+        assertThrows(SimulationNotFoundException.class, () -> simulationService.getSimulation(null));
+        assertThrows(SimulationNotFoundException.class, () -> simulationService.getSimulation("   "));
     }
 }

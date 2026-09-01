@@ -6,6 +6,8 @@ import com.safezone.dto.IncidentDto;
 import com.safezone.dto.SimulationRequestDto;
 import com.safezone.dto.SimulationResponseDto;
 import com.safezone.exception.InvalidSimulationRequestException;
+import com.safezone.exception.SimulationNotFoundException;
+import com.safezone.repository.SimulationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,13 +22,16 @@ public class SimulationService {
     private static final Logger log = LoggerFactory.getLogger(SimulationService.class);
 
     private final SimulationEngine simulationEngine;
+    private final SimulationRepository simulationRepository;
 
-    public SimulationService(SimulationEngine simulationEngine) {
+    public SimulationService(SimulationEngine simulationEngine, SimulationRepository simulationRepository) {
         this.simulationEngine = simulationEngine;
+        this.simulationRepository = simulationRepository;
     }
 
     /**
-     * Validates the simulation request and runs the simulation via the injected engine.
+     * Validates the simulation request, runs the simulation via the injected engine,
+     * stores the result in the repository, and returns it.
      *
      * @param request the simulation request parameters
      * @return canonical simulation response
@@ -35,7 +40,25 @@ public class SimulationService {
     public SimulationResponseDto runSimulation(SimulationRequestDto request) {
         SimulationRequestDto validatedRequest = validateAndNormalizeRequest(request);
         log.info("Dispatching validated simulation request [{}] to simulation engine", validatedRequest.requestId());
-        return simulationEngine.simulate(validatedRequest);
+        SimulationResponseDto response = simulationEngine.simulate(validatedRequest);
+        simulationRepository.save(response);
+        log.info("Saved simulation result [{}] in repository", response.simulationId());
+        return response;
+    }
+
+    /**
+     * Retrieves a stored simulation result by its ID.
+     *
+     * @param simulationId the simulation identifier
+     * @return the stored simulation response DTO
+     * @throws SimulationNotFoundException if no simulation is found with the given ID
+     */
+    public SimulationResponseDto getSimulation(String simulationId) {
+        if (simulationId == null || simulationId.isBlank()) {
+            throw new SimulationNotFoundException("Simulation ID must not be null or blank");
+        }
+        return simulationRepository.findBySimulationId(simulationId)
+                .orElseThrow(() -> new SimulationNotFoundException(simulationId, true));
     }
 
     private SimulationRequestDto validateAndNormalizeRequest(SimulationRequestDto request) {

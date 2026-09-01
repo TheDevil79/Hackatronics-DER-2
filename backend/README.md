@@ -70,6 +70,17 @@ The server will start locally at **`http://localhost:8080`**.
 }
 ```
 
+### 2. Run Simulation
+- **Method**: `POST`
+- **Path**: `/api/simulations`
+- **Request Body**: `SimulationRequestDto`
+- **Response**: `200 OK` + `SimulationResponseDto` (or `400 Bad Request` on validation failure)
+
+### 3. Get Simulation Result
+- **Method**: `GET`
+- **Path**: `/api/simulations/{simulationId}`
+- **Response**: `200 OK` + `SimulationResponseDto` (or `404 Not Found` if ID does not exist)
+
 ---
 
 ## 🌐 CORS Configuration

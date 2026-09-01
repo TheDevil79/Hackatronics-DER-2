@@ -1,5 +1,6 @@
 package com.safezone.controller;
 
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,10 +8,12 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -156,7 +159,7 @@ class SimulationControllerTest {
             """;
 
     @Test
-    @DisplayName("POST /api/simulations with valid two-tank example returns 200 OK and expected demo output")
+    @DisplayName("POST /api/simulations creates and stores a simulation, returning 200 OK")
     void testPostSimulationSuccess() throws Exception {
         mockMvc.perform(post("/api/simulations")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -180,6 +183,76 @@ class SimulationControllerTest {
                 .andExpect(jsonPath("$.escapeRoutesAssessment", hasSize(2)))
                 .andExpect(jsonPath("$.recommendedApproachDirection.compassSector").value("WNW"))
                 .andExpect(jsonPath("$.recommendedApproachDirection.safetyRating").value("OPTIMAL"));
+    }
+
+    @Test
+    @DisplayName("GET /api/simulations/{simulationId} retrieves a previously created simulation")
+    void testGetSimulationSuccess() throws Exception {
+        // 1. Create a simulation
+        MvcResult result = mockMvc.perform(post("/api/simulations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(TWO_TANK_REQUEST_JSON))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String responseJson = result.getResponse().getContentAsString();
+        String simulationId = JsonPath.read(responseJson, "$.simulationId");
+
+        // 2. Retrieve the created simulation by ID
+        mockMvc.perform(get("/api/simulations/" + simulationId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.simulationId").value(simulationId))
+                .andExpect(jsonPath("$.requestId").value("req-safezone-demo-001"))
+                .andExpect(jsonPath("$.overallSeverity").value("CRITICAL"))
+                .andExpect(jsonPath("$.overallRiskScore").value(84.5))
+                .andExpect(jsonPath("$.hazardZones", hasSize(4)));
+    }
+
+    @Test
+    @DisplayName("GET /api/simulations/{simulationId} returns 404 Not Found for unknown ID")
+    void testGetSimulationNotFound() throws Exception {
+        mockMvc.perform(get("/api/simulations/unknown-simulation-id-9999")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Simulation not found for id: unknown-simulation-id-9999"));
+    }
+
+    @Test
+    @DisplayName("Multiple simulations can coexist in storage and be retrieved independently")
+    void testMultipleSimulationsCoexist() throws Exception {
+        String req1 = TWO_TANK_REQUEST_JSON.replace("req-safezone-demo-001", "req-first-run");
+        String req2 = TWO_TANK_REQUEST_JSON.replace("req-safezone-demo-001", "req-second-run");
+
+        MvcResult res1 = mockMvc.perform(post("/api/simulations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(req1))
+                .andExpect(status().isOk())
+                .andReturn();
+        String simId1 = JsonPath.read(res1.getResponse().getContentAsString(), "$.simulationId");
+
+        MvcResult res2 = mockMvc.perform(post("/api/simulations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(req2))
+                .andExpect(status().isOk())
+                .andReturn();
+        String simId2 = JsonPath.read(res2.getResponse().getContentAsString(), "$.simulationId");
+
+        // Verify sim1
+        mockMvc.perform(get("/api/simulations/" + simId1))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.simulationId").value(simId1))
+                .andExpect(jsonPath("$.requestId").value("req-first-run"));
+
+        // Verify sim2
+        mockMvc.perform(get("/api/simulations/" + simId2))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.simulationId").value(simId2))
+                .andExpect(jsonPath("$.requestId").value("req-second-run"));
     }
 
     @Test

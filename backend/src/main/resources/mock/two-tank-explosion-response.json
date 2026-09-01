@@ -1,0 +1,167 @@
+{
+  "simulationId": "sim-20260901-09412-safezone",
+  "requestId": "req-safezone-demo-001",
+  "timestamp": "2026-09-01T11:27:00Z",
+  "executionTimeMs": 142.5,
+  "overallSeverity": "CRITICAL",
+  "overallRiskScore": 84.5,
+  "summary": "Critical Vapor Cloud Explosion at T-101 (LPG). Severe blast overpressure and thermal flux threaten adjacent Propane sphere T-102 (estimated 72% escalation probability within 165s). West evacuation route is compromised.",
+  "hazardZones": [
+    {
+      "zoneId": "ZONE-BLAST-70KPA",
+      "zoneType": "BLAST",
+      "thresholdValue": 70.0,
+      "thresholdUnit": "kPa",
+      "severityLevel": "CRITICAL",
+      "radiusMeters": 42.0,
+      "polygonCoordinates": [
+        { "x": 40.0, "y": 92.0 },
+        { "x": 76.0, "y": 72.0 },
+        { "x": 82.0, "y": 50.0 },
+        { "x": 70.0, "y": 20.0 },
+        { "x": 40.0, "y": 8.0 },
+        { "x": 5.0, "y": 25.0 },
+        { "x": -2.0, "y": 50.0 },
+        { "x": 10.0, "y": 80.0 }
+      ],
+      "description": "Total structural destruction, heavy equipment displacement, 100% human lethality."
+    },
+    {
+      "zoneId": "ZONE-BLAST-20KPA",
+      "zoneType": "BLAST",
+      "thresholdValue": 20.0,
+      "thresholdUnit": "kPa",
+      "severityLevel": "HIGH",
+      "radiusMeters": 88.0,
+      "polygonCoordinates": [
+        { "x": 40.0, "y": 138.0 },
+        { "x": 115.0, "y": 105.0 },
+        { "x": 128.0, "y": 50.0 },
+        { "x": 110.0, "y": -15.0 },
+        { "x": 40.0, "y": -38.0 },
+        { "x": -35.0, "y": -5.0 },
+        { "x": -48.0, "y": 50.0 },
+        { "x": -20.0, "y": 115.0 }
+      ],
+      "description": "Moderate building damage, steel frame distortion, ruptured unreinforced walls."
+    },
+    {
+      "zoneId": "ZONE-THERMAL-37_5KW",
+      "zoneType": "THERMAL",
+      "thresholdValue": 37.5,
+      "thresholdUnit": "kW/m^2",
+      "severityLevel": "CRITICAL",
+      "radiusMeters": 35.0,
+      "polygonCoordinates": [
+        { "x": 30.0, "y": 80.0 },
+        { "x": 18.0, "y": 62.0 },
+        { "x": 15.0, "y": 50.0 },
+        { "x": 20.0, "y": 30.0 },
+        { "x": 45.0, "y": 20.0 },
+        { "x": 65.0, "y": 42.0 },
+        { "x": 60.0, "y": 70.0 }
+      ],
+      "description": "100% lethality in 1 min, severe process equipment damage and instantaneous secondary ignition."
+    },
+    {
+      "zoneId": "ZONE-THERMAL-12_5KW",
+      "zoneType": "THERMAL",
+      "thresholdValue": 12.5,
+      "thresholdUnit": "kW/m^2",
+      "severityLevel": "HIGH",
+      "radiusMeters": 68.0,
+      "polygonCoordinates": [
+        { "x": 10.0, "y": 105.0 },
+        { "x": -15.0, "y": 80.0 },
+        { "x": -25.0, "y": 50.0 },
+        { "x": -5.0, "y": 10.0 },
+        { "x": 45.0, "y": -10.0 },
+        { "x": 90.0, "y": 25.0 },
+        { "x": 98.0, "y": 70.0 }
+      ],
+      "description": "1% lethality in 10s, 1st degree burns in 10s, wood ignition."
+    }
+  ],
+  "affectedAssets": [
+    {
+      "assetId": "T-101",
+      "name": "LPG Storage Sphere 1",
+      "distanceMeters": 0.0,
+      "peakThermalRadiationKwM2": 150.0,
+      "peakOverpressureKPa": 320.0,
+      "damageState": "TOTAL_LOSS",
+      "failureProbabilityEstimate": 1.0,
+      "estimatedTimeToRuptureSeconds": 0.0,
+      "damageSummary": "Primary incident epicenter; total tank breach and vapor ignition."
+    },
+    {
+      "assetId": "T-102",
+      "name": "Propane Storage Sphere 2",
+      "distanceMeters": 55.0,
+      "peakThermalRadiationKwM2": 24.8,
+      "peakOverpressureKPa": 48.5,
+      "damageState": "STRUCTURAL_DAMAGE",
+      "failureProbabilityEstimate": 0.72,
+      "estimatedTimeToRuptureSeconds": 165.0,
+      "damageSummary": "High thermal flux and overpressure on sphere shell; blast wall provides estimated 35% shielding."
+    },
+    {
+      "assetId": "BLD-CTRL",
+      "name": "Main Control Room",
+      "distanceMeters": 152.3,
+      "peakThermalRadiationKwM2": 4.2,
+      "peakOverpressureKPa": 8.9,
+      "damageState": "MINOR_DAMAGE",
+      "failureProbabilityEstimate": 0.05,
+      "damageSummary": "Window glass breakage and minor ceiling tile dislodgement; structural integrity preserved."
+    },
+    {
+      "assetId": "EXIT-MAIN-GATE",
+      "name": "North Perimeter Main Gate",
+      "distanceMeters": 201.2,
+      "peakThermalRadiationKwM2": 1.2,
+      "peakOverpressureKPa": 3.4,
+      "damageState": "INTACT",
+      "failureProbabilityEstimate": 0.0,
+      "damageSummary": "Fully intact and operational for personnel egress."
+    }
+  ],
+  "dominoPropagation": [
+    {
+      "stepOrder": 1,
+      "triggerAssetId": "T-101",
+      "targetAssetId": "T-102",
+      "mechanism": "THERMAL_RADIATION_RUPTURE",
+      "escalationProbabilityEstimate": 0.72,
+      "estimatedDelaySeconds": 165.0,
+      "riskContribution": "Model estimate: Thermal radiation from T-101 pool fire heats unwetted shell plates of T-102 leading to secondary BLEVE."
+    }
+  ],
+  "escapeRoutesAssessment": [
+    {
+      "routeId": "ROUTE-WEST",
+      "name": "West Perimeter Evacuation Path",
+      "safetyStatus": "UNSAFE",
+      "maxThermalExposureKwM2": 18.6,
+      "maxOverpressureKPa": 34.2,
+      "cutoffDistanceAlongRouteMeters": 12.5,
+      "recommendation": "DO NOT USE. Route passes directly through the 20 kPa blast zone and downwind flame radiation cone."
+    },
+    {
+      "routeId": "ROUTE-NORTH",
+      "name": "North Gate Evacuation Corridor",
+      "safetyStatus": "SAFE",
+      "maxThermalExposureKwM2": 2.1,
+      "maxOverpressureKPa": 6.8,
+      "cutoffDistanceAlongRouteMeters": null,
+      "recommendation": "RECOMMENDED EVACUATION ROUTE. Protected by distance and control building shielding."
+    }
+  ],
+  "recommendedApproachDirection": {
+    "bearingDegrees": 292.5,
+    "compassSector": "WNW",
+    "safetyRating": "OPTIMAL",
+    "upwindOffsetDegrees": 180.0,
+    "rationale": "Direct upwind / crosswind approach from West-Northwest provides clean air corridor away from downwind thermal plume and projectile trajectory."
+  }
+}

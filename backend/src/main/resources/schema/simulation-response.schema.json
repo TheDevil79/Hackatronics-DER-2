@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safezone.ai/schemas/simulation-response.schema.json",
+  "title": "SafeZoneSimulationResponse",
+  "description": "CANONICAL SOURCE OF TRUTH IS in shared/schemas/simulation-response.schema.json. Simulation output payload for SafeZone AI.",
+  "type": "object",
+  "required": [
+    "simulationId",
+    "timestamp",
+    "overallSeverity",
+    "overallRiskScore",
+    "hazardZones",
+    "affectedAssets",
+    "dominoPropagation",
+    "escapeRoutesAssessment",
+    "recommendedApproachDirection"
+  ],
+  "properties": {
+    "simulationId": { "type": "string" },
+    "requestId": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "executionTimeMs": { "type": "number" },
+    "overallSeverity": {
+      "type": "string",
+      "enum": ["LOW", "MODERATE", "HIGH", "CRITICAL"]
+    },
+    "overallRiskScore": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 100.0
+    },
+    "summary": { "type": "string" },
+    "hazardZones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "zoneId",
+          "zoneType",
+          "thresholdValue",
+          "thresholdUnit",
+          "severityLevel",
+          "radiusMeters",
+          "polygonCoordinates"
+        ],
+        "properties": {
+          "zoneId": { "type": "string" },
+          "zoneType": {
+            "type": "string",
+            "enum": ["THERMAL", "BLAST", "COMBINED"]
+          },
+          "thresholdValue": { "type": "number" },
+          "thresholdUnit": {
+            "type": "string",
+            "enum": ["kW/m^2", "kPa", "psi", "ppm", "INDEX"]
+          },
+          "severityLevel": {
+            "type": "string",
+            "enum": ["LOW", "MODERATE", "HIGH", "CRITICAL"]
+          },
+          "radiusMeters": { "type": "number" },
+          "polygonCoordinates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["x", "y"],
+              "properties": {
+                "x": { "type": "number" },
+                "y": { "type": "number" }
+              }
+            }
+          },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "affectedAssets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "assetId",
+          "name",
+          "distanceMeters",
+          "damageState",
+          "failureProbabilityEstimate"
+        ],
+        "properties": {
+          "assetId": { "type": "string" },
+          "name": { "type": "string" },
+          "distanceMeters": { "type": "number" },
+          "peakThermalRadiationKwM2": { "type": "number", "default": 0.0 },
+          "peakOverpressureKPa": { "type": "number", "default": 0.0 },
+          "damageState": {
+            "type": "string",
+            "enum": ["INTACT", "MINOR_DAMAGE", "STRUCTURAL_DAMAGE", "TOTAL_LOSS"]
+          },
+          "failureProbabilityEstimate": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "estimatedTimeToRuptureSeconds": { "type": "number" },
+          "damageSummary": { "type": "string" }
+        }
+      }
+    },
+    "dominoPropagation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "stepOrder",
+          "triggerAssetId",
+          "targetAssetId",
+          "mechanism",
+          "escalationProbabilityEstimate",
+          "estimatedDelaySeconds"
+        ],
+        "properties": {
+          "stepOrder": { "type": "integer", "minimum": 1 },
+          "triggerAssetId": { "type": "string" },
+          "targetAssetId": { "type": "string" },
+          "mechanism": {
+            "type": "string",
+            "enum": [
+              "THERMAL_RADIATION_RUPTURE",
+              "OVERPRESSURE_COLLAPSE",
+              "DEBRIS_IMPACT",
+              "POOL_FIRE_ENGULFMENT"
+            ]
+          },
+          "escalationProbabilityEstimate": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "estimatedDelaySeconds": { "type": "number", "minimum": 0.0 },
+          "riskContribution": { "type": "string" }
+        }
+      }
+    },
+    "escapeRoutesAssessment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["routeId", "name", "safetyStatus", "recommendation"],
+        "properties": {
+          "routeId": { "type": "string" },
+          "name": { "type": "string" },
+          "safetyStatus": {
+            "type": "string",
+            "enum": ["SAFE", "CAUTION", "UNSAFE"]
+          },
+          "maxThermalExposureKwM2": { "type": "number" },
+          "maxOverpressureKPa": { "type": "number" },
+          "cutoffDistanceAlongRouteMeters": { "type": "number" },
+          "recommendation": { "type": "string" }
+        }
+      }
+    },
+    "recommendedApproachDirection": {
+      "type": "object",
+      "required": ["bearingDegrees", "compassSector", "safetyRating", "rationale"],
+      "properties": {
+        "bearingDegrees": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 360.0
+        },
+        "compassSector": { "type": "string" },
+        "safetyRating": { "type": "string", "enum": ["OPTIMAL", "ACCEPTABLE", "HAZARDOUS"] },
+        "upwindOffsetDegrees": { "type": "number" },
+        "rationale": { "type": "string" }
+      }
+    }
+  }
+}

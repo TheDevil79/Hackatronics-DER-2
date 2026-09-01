@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safezone.ai/schemas/simulation-request.schema.json",
+  "title": "SafeZoneSimulationRequest",
+  "description": "CANONICAL SOURCE OF TRUTH IS in shared/schemas/simulation-request.schema.json. Input payload for SafeZone AI threat-zone simulation.",
+  "type": "object",
+  "required": [
+    "facility",
+    "incident",
+    "wind",
+    "environment",
+    "simulationConfig"
+  ],
+  "properties": {
+    "requestId": { "type": "string" },
+    "facility": {
+      "type": "object",
+      "required": ["facilityId", "name", "location", "assets"],
+      "properties": {
+        "facilityId": { "type": "string" },
+        "name": { "type": "string" },
+        "location": {
+          "type": "object",
+          "required": ["latitude", "longitude"],
+          "properties": {
+            "latitude": { "type": "number", "minimum": -90.0, "maximum": 90.0 },
+            "longitude": { "type": "number", "minimum": -180.0, "maximum": 180.0 },
+            "elevationMeters": { "type": "number", "default": 0.0 }
+          }
+        },
+        "boundary": {
+          "type": "object",
+          "properties": {
+            "widthMeters": { "type": "number", "minimum": 1.0 },
+            "lengthMeters": { "type": "number", "minimum": 1.0 },
+            "polygon": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["assetId", "name", "type", "position"],
+            "properties": {
+              "assetId": { "type": "string" },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "TANK",
+                  "MACHINERY",
+                  "BUILDING",
+                  "STORAGE_AREA",
+                  "SHELTER",
+                  "EXIT"
+                ]
+              },
+              "position": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" },
+                  "z": { "type": "number", "default": 0.0 }
+                }
+              },
+              "dimensions": {
+                "type": "object",
+                "properties": {
+                  "length": { "type": "number", "minimum": 0.1 },
+                  "width": { "type": "number", "minimum": 0.1 },
+                  "height": { "type": "number", "minimum": 0.1 },
+                  "diameter": { "type": "number", "minimum": 0.1 }
+                }
+              },
+              "tankProperties": {
+                "type": "object",
+                "properties": {
+                  "material": {
+                    "type": "string",
+                    "enum": [
+                      "PROPANE",
+                      "LPG",
+                      "METHANE",
+                      "GASOLINE",
+                      "DIESEL",
+                      "CRUDE_OIL",
+                      "HYDROGEN",
+                      "AMMONIA",
+                      "ETHANOL",
+                      "CUSTOM"
+                    ]
+                  },
+                  "capacityM3": { "type": "number", "minimum": 0.1 },
+                  "fillLevelPercentage": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
+                  "operatingPressureBar": { "type": "number", "minimum": 0.1, "default": 1.013 },
+                  "operatingTemperatureC": { "type": "number", "default": 25.0 },
+                  "containmentDike": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        "escapeRoutes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["routeId", "name", "points"],
+            "properties": {
+              "routeId": { "type": "string" },
+              "name": { "type": "string" },
+              "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["x", "y"],
+                  "properties": {
+                    "x": { "type": "number" },
+                    "y": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "blockages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["blockageId", "type", "points"],
+            "properties": {
+              "blockageId": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["BLAST_WALL", "FIREWALL", "BERM", "SECURITY_FENCE", "BUILDING_SHIELD"]
+              },
+              "attenuationFactor": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5 },
+              "heightMeters": { "type": "number", "minimum": 0.5 },
+              "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["x", "y"],
+                  "properties": {
+                    "x": { "type": "number" },
+                    "y": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "incident": {
+      "type": "object",
+      "required": ["sourceAssetId", "incidentType"],
+      "properties": {
+        "sourceAssetId": { "type": "string" },
+        "incidentType": {
+          "type": "string",
+          "enum": [
+            "VAPOR_CLOUD_EXPLOSION",
+            "BLEVE",
+            "POOL_FIRE",
+            "JET_FIRE",
+            "FLASH_FIRE",
+            "TOXIC_RELEASE"
+          ]
+        },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "fuelMassKg": { "type": "number", "minimum": 1.0 },
+            "tntEquivalentMassKg": { "type": "number", "minimum": 0.1 },
+            "firePoolDiameterMeters": { "type": "number", "minimum": 0.5 },
+            "releaseDurationSeconds": { "type": "number", "minimum": 1.0, "default": 60.0 },
+            "orificeDiameterMm": { "type": "number", "minimum": 1.0 }
+          }
+        }
+      }
+    },
+    "wind": {
+      "type": "object",
+      "required": ["speedMps", "directionDegreesFromNorth"],
+      "properties": {
+        "speedMps": { "type": "number", "minimum": 0.0 },
+        "directionDegreesFromNorth": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "directionCompass": { "type": "string" },
+        "unit": { "type": "string", "enum": ["METRIC"], "default": "METRIC" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": ["ambientTemperatureC"],
+      "properties": {
+        "ambientTemperatureC": { "type": "number", "default": 25.0 },
+        "relativeHumidityPercentage": { "type": "number", "minimum": 0.0, "maximum": 100.0, "default": 50.0 },
+        "atmosphericPressureKPa": { "type": "number", "default": 101.325 },
+        "stabilityClass": {
+          "type": "string",
+          "enum": ["A", "B", "C", "D", "E", "F"],
+          "default": "D"
+        },
+        "solarRadiationWm2": { "type": "number", "default": 0.0 }
+      }
+    },
+    "simulationConfig": {
+      "type": "object",
+      "required": ["thermalCalculationEnabled", "blastCalculationEnabled", "dominoAnalysisEnabled"],
+      "properties": {
+        "thermalCalculationEnabled": { "type": "boolean", "default": true },
+        "blastCalculationEnabled": { "type": "boolean", "default": true },
+        "dominoAnalysisEnabled": { "type": "boolean", "default": true },
+        "gridResolutionMeters": { "type": "number", "minimum": 0.5, "default": 2.0 },
+        "timeHorizonSeconds": { "type": "number", "minimum": 10.0, "default": 300.0 }
+      }
+    }
+  }
+}

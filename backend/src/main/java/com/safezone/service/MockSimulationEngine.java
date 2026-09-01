@@ -5,6 +5,7 @@ import com.safezone.dto.SimulationRequestDto;
 import com.safezone.dto.SimulationResponseDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,7 @@ import java.util.UUID;
  * </p>
  */
 @Component
+@ConditionalOnProperty(name = "simulation.engine", havingValue = "mock", matchIfMissing = true)
 public class MockSimulationEngine implements SimulationEngine {
 
     private static final Logger log = LoggerFactory.getLogger(MockSimulationEngine.class);

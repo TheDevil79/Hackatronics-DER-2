@@ -14,6 +14,16 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(PhysicsEngineException.class)
+    public ResponseEntity<ErrorResponse> handlePhysicsEngineException(PhysicsEngineException ex) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.BAD_GATEWAY.value(),
+                HttpStatus.BAD_GATEWAY.getReasonPhrase(),
+                "Physics simulation engine failure: " + ex.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(errorResponse);
+    }
+
     @ExceptionHandler(SimulationNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleSimulationNotFound(SimulationNotFoundException ex) {
         ErrorResponse errorResponse = new ErrorResponse(

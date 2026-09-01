@@ -164,7 +164,7 @@ class PhysicsSimulationEngineTest {
     @DisplayName("simulate throws PhysicsEngineException when connection fails (unreachable host)")
     void testConnectionRefusedHandling() {
         // Create an engine instance pointing to an unreachable host/port without a mock server
-        RestClient directClient = RestClient.builder().build();
+        RestClient directClient = RestClient.builder().baseUrl("http://127.0.0.1:1").build();
         PhysicsSimulationEngine unreachableEngine = new PhysicsSimulationEngine(
                 directClient,
                 "http://127.0.0.1:1",

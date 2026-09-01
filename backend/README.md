@@ -1,172 +1,239 @@
-# SafeZone AI — Backend Service
+# SafeZone AI — Backend Service & Physics Simulation Engines
 
-The backend service for SafeZone AI provides REST APIs for scenario management, physics engine orchestration, risk score aggregation, and report generation.
+The backend service for SafeZone AI provides REST APIs for scenario management, physics engine orchestration, risk score aggregation, and consequence evaluation.
 
----
-
-## 🛠️ Technology Stack
-
-- **Language**: Java 17+
-- **Framework**: Spring Boot 3.2.x (Spring Web, Spring Validation)
-- **Build Tool**: Gradle
-- **Testing**: JUnit 5, Spring Boot Test, MockMvc
+> [!IMPORTANT]
+> **DISCLAIMER**: SafeZone AI is an educational demonstrator and hackathon prototype. It is **NOT** a certified engineering safety calculator or CFD simulation tool and must not be used for life-critical plant safety operations.
 
 ---
 
-## 📂 Package Architecture
+## 🏗️ Architecture Overview
+
+SafeZone AI adopts a clean, modular architecture separating physical blast wave modeling from consequence analysis:
 
 ```
-backend/src/main/java/com/safezone/
-├── SafeZoneApplication.java  # Main Spring Boot application entry point
-├── config/                   # Configuration (CORS, security, converters)
-│   └── CorsConfig.java
-├── controller/               # REST API Controllers
-│   └── HealthController.java
-├── dto/                      # Data Transfer Objects & request/response records
-│   └── HealthResponse.java
-├── service/                  # Business logic & simulation pipeline coordinators
-├── model/                    # Domain models & entities
-└── repository/               # Data access layer & persistence interfaces
+                            +--------------------------+
+                            |     Frontend Client      |
+                            +--------------------------+
+                                         |
+                                         | POST /api/simulations
+                                         v
+                            +--------------------------+
+                            |   SimulationController   |
+                            +--------------------------+
+                                         |
+                                         v
+                            +--------------------------+
+                            |    SimulationService     |
+                            +--------------------------+
+                                         |
+                      +------------------+------------------+
+                      |                                     |
+                      v                                     v
+         +--------------------------+          +--------------------------+
+         |SedovTaylorSimulationEngine|          |PythonSedovSimulationEngine|
+         |    (Java In-Process)     |          |  (Spring RestClient)     |
+         +--------------------------+          +--------------------------+
+                      |                                     |
+                      | (Fallback)                          | HTTP JSON
+                      |                                     v
+                      |                        +--------------------------+
+                      |                        |  FastAPI Python Service  |
+                      |                        |     (Port 8000)          |
+                      |                        +--------------------------+
+                      |                                     |
+                      |                                     v
+                      +----------------> [ Consequence Pipeline ] <---------+
+                                         - DamageAssessmentService
+                                         - DominoAnalysisService
+                                         - RouteAssessmentService
+                                         - RiskAssessmentService
+                                         - SimulationRepository
 ```
+
+### Module Responsibilities
+
+| Layer | Component | Language | Scope / Responsibilities |
+|---|---|---|---|
+| **Physics Model** | `simulation/` (FastAPI) | Python 3.10+ | Pure blast propagation: Sedov-Taylor radius $R(t)$, shock velocity $D(t)$, wind advection $(u_x, u_y)$, asymmetry $\alpha$, directional blast front deformation, and point overpressures. |
+| **Fallback Physics** | `SedovTaylorSimulationEngine` | Java 17 | In-process analytical Sedov-Taylor physics with directional wind modulation (`WindEffectModel`). |
+| **Client / Adapter** | `PythonSedovSimulationEngine` | Java 17 | Transforms DTOs (TNT mass $\to$ Joules, m/s $\to$ km/h), communicates with Python over HTTP, and coordinates consequence layers. |
+| **Consequence Analysis**| `DamageAssessmentService` | Java 17 | Authoritative damage states (`TOTAL_LOSS`, `STRUCTURAL_DAMAGE`, `MINOR_DAMAGE`), failure probability, time-to-rupture. |
+| **Domino Cascade** | `DominoAnalysisService` | Java 17 | Secondary escalation graph, arrival + rupture delays, multi-hop domino chain. |
+| **Route Vulnerability** | `RouteAssessmentService` | Java 17 | Evacuation route safety classification (`SAFE`, `CAUTION`, `UNSAFE`) and path cutoff distance. |
+| **Multi-Hazard Risk** | `RiskAssessmentService` | Java 17 | Multi-hazard risk score calculation and severity classification (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`). |
 
 ---
 
-## 🚀 How to Run the Backend
+## 🚀 How to Run
 
-### Prerequisites
-- Java Development Kit (JDK 17 or higher) installed and set in `JAVA_HOME` / `PATH`.
-- Gradle (or use wrapper).
-
-### 1. Build the Project
-From the `backend/` directory:
+### 1. Start the Python Physics Service
 ```bash
-gradle build
+cd simulation
+pip install -r requirements.txt
+python run.py
 ```
+The Python service will be available at **`http://localhost:8000`**.
+- Health check: `GET http://localhost:8000/health`
+- Simulate endpoint: `POST http://localhost:8000/api/physics/simulate`
 
-### 2. Run Tests
+### 2. Start the Spring Boot Backend
+
+#### Option A: Run with Python Physics Engine (Default for advanced wind model)
 ```bash
-gradle test
+cd backend
+gradle bootRun --args='--simulation.engine=python-sedov'
 ```
 
-### 3. Start the Server
+#### Option B: Run with Java Sedov-Taylor Engine
 ```bash
-gradle bootRun
+gradle bootRun --args='--simulation.engine=java-sedov'
 ```
 
-The server will start locally at **`http://localhost:8080`**.
+#### Option C: Run with Mock Engine (Static demo fixture)
+```bash
+gradle bootRun --args='--simulation.engine=mock'
+```
+
+The Spring Boot backend will be available at **`http://localhost:8080`**.
 
 ---
 
-## 📡 Available Endpoints
+## ⚙️ Engine Configuration & Aliases
 
-### 1. Health Check
-- **Method**: `GET`
-- **Path**: `/api/health`
-- **Response**: `200 OK`
+Configure `application.properties` or provide CLI arguments:
+
+```properties
+# Engine Selection: 'python-sedov', 'java-sedov', or 'mock'
+# Supported aliases:
+#   'python', 'physics', 'sedov-python' -> PythonSedovSimulationEngine
+#   'sedov', 'java-sedov'                -> SedovTaylorSimulationEngine
+#   'mock'                               -> MockSimulationEngine
+simulation.engine=python-sedov
+
+# Python Microservice Connection Settings
+simulation.python.base-url=http://localhost:8000
+simulation.python.connect-timeout-ms=2000
+simulation.python.read-timeout-ms=10000
+simulation.python.fallback-to-java=true
+```
+
+### Automatic Fallback Behavior
+When `simulation.engine=python-sedov` and `simulation.python.fallback-to-java=true`:
+- If the Python microservice is offline or unreachable, the backend logs a warning:
+  `"Python Sedov engine unavailable; falling back to Java Sedov engine."`
+- The request seamlessly executes using `SedovTaylorSimulationEngine` without returning an HTTP 500 error to the client.
+
+---
+
+## 💨 Wind Validation & Physics Verification
+
+### Benchmark Case: Equal-Distance Upwind vs Downwind Assets
+- **Epicenter**: `T-SRC` at `(40, 50)`
+- **Downwind Asset**: `T-WEST` at `(-15, 50)` — 55 m West
+- **Upwind Asset**: `T-EAST` at `(95, 50)` — 55 m East
+- **Wind**: 3 m/s (10.8 km/h) FROM East (90°)
+
+### Results & Verification:
+1. **Blast Center Advection**: The blast epicenter shifts towards the West $(-X)$ in the direction of wind travel.
+2. **Directional Deformation**: The shock front stretches in the downwind direction ($\alpha > 0$).
+3. **Asset Exposure**:
+   - `T-WEST` (Downwind): Higher overpressure, higher failure probability, and shorter rupture time.
+   - `T-EAST` (Upwind): Lower overpressure, lower exposure, and prolonged rupture time.
+4. **Zero-Wind Symmetry**: When wind speed is 0 km/h, $\alpha = 0$, blast center remains at $(x_0, y_0)$, and exposure is symmetric.
+
+---
+
+## 📡 API Endpoints
+
+### 1. Run Simulation
+- **Method**: `POST`
+- **Path**: `/api/simulations`
+- **Request Body**:
 ```json
 {
-  "status": "UP",
-  "service": "SafeZone AI Backend"
+  "requestId": "req-safezone-demo-001",
+  "facility": {
+    "facilityId": "FAC-PETRO-09",
+    "name": "Apex Petrochemical Storage Yard",
+    "location": { "latitude": 19.0760, "longitude": 72.8777, "elevationMeters": 12.0 },
+    "boundary": {
+      "widthMeters": 300.0,
+      "lengthMeters": 200.0,
+      "polygon": [
+        { "x": -50.0, "y": -50.0 }, { "x": 250.0, "y": -50.0 },
+        { "x": 250.0, "y": 150.0 }, { "x": -50.0, "y": 150.0 }
+      ]
+    },
+    "assets": [
+      {
+        "assetId": "T-101",
+        "name": "LPG Storage Sphere 1",
+        "type": "TANK",
+        "position": { "x": 40.0, "y": 50.0, "z": 0.0 },
+        "dimensions": { "diameter": 14.0, "height": 16.0 },
+        "tankProperties": { "material": "LPG", "capacityM3": 1500.0, "fillLevelPercentage": 75.0, "operatingPressureBar": 8.5, "operatingTemperatureC": 28.0, "containmentDike": true }
+      },
+      {
+        "assetId": "T-102",
+        "name": "Propane Storage Sphere 2",
+        "type": "TANK",
+        "position": { "x": 95.0, "y": 50.0, "z": 0.0 },
+        "dimensions": { "diameter": 14.0, "height": 16.0 },
+        "tankProperties": { "material": "PROPANE", "capacityM3": 1500.0, "fillLevelPercentage": 60.0, "operatingPressureBar": 9.2, "operatingTemperatureC": 28.0, "containmentDike": true }
+      }
+    ],
+    "escapeRoutes": [
+      {
+        "routeId": "ROUTE-WEST",
+        "name": "West Perimeter Evacuation Path",
+        "points": [ { "x": 50.0, "y": 20.0 }, { "x": 10.0, "y": 20.0 }, { "x": -40.0, "y": 20.0 } ]
+      }
+    ],
+    "blockages": []
+  },
+  "incident": {
+    "sourceAssetId": "T-101",
+    "incidentType": "VAPOR_CLOUD_EXPLOSION",
+    "parameters": {
+      "fuelMassKg": 4500.0,
+      "tntEquivalentMassKg": 675.0,
+      "firePoolDiameterMeters": 22.0,
+      "releaseDurationSeconds": 45.0
+    }
+  },
+  "wind": {
+    "speedMps": 6.5,
+    "directionDegreesFromNorth": 112.5,
+    "directionCompass": "ESE",
+    "unit": "METRIC"
+  },
+  "environment": {
+    "ambientTemperatureC": 32.0,
+    "relativeHumidityPercentage": 65.0,
+    "atmosphericPressureKPa": 101.325,
+    "stabilityClass": "D",
+    "solarRadiationWm2": 650.0
+  },
+  "simulationConfig": {
+    "thermalCalculationEnabled": true,
+    "blastCalculationEnabled": true,
+    "dominoAnalysisEnabled": true,
+    "gridResolutionMeters": 2.0,
+    "timeHorizonSeconds": 600.0
+  }
 }
 ```
 
-### 2. Run Simulation
-- **Method**: `POST`
-- **Path**: `/api/simulations`
-- **Request Body**: `SimulationRequestDto`
-- **Response**: `200 OK` + `SimulationResponseDto` (or `400 Bad Request` on validation failure)
-
-### 3. List All Simulations
-- **Method**: `GET`
-- **Path**: `/api/simulations`
-- **Response**: `200 OK` + `List<SimulationResponseDto>`
-
-### 4. Get Simulation Result by ID
-- **Method**: `GET`
-- **Path**: `/api/simulations/{simulationId}`
-- **Response**: `200 OK` + `SimulationResponseDto` (or `404 Not Found` if ID does not exist)
-
 ---
 
-## 🌐 CORS Configuration
-CORS is configured in `com.safezone.config.CorsConfig` to allow requests originating from frontend development servers:
-- `http://localhost:3000`
-- `http://localhost:5173` (Vite)
-- `http://localhost:4173`
+## 🧪 Testing
 
----
-
-## ⚙️ Simulation Engine Configuration
-
-SafeZone AI supports three simulation engine modes via Spring Boot configuration properties:
-
-| Property | Default Value | Description |
-|---|---|---|
-| `simulation.engine` | `mock` | Engine mode: `mock` (static demo fixture), `sedov` (internal Sedov-Taylor blast physics engine), or `physics` (external HTTP physics service). |
-| `simulation.sedov.gamma` | `1.4` | Specific heat ratio ($\gamma$) of air. |
-| `simulation.sedov.xi` | `1.033` | Dimensionless self-similarity constant ($\xi$) for spherical blast waves. |
-| `simulation.sedov.polygon-points` | `36` | Number of vertices generated for each circular hazard zone polygon. |
-| `simulation.sedov.threshold.critical-kpa` | `70.0` | Peak overpressure threshold for Critical blast hazard zone (total destruction). |
-| `simulation.sedov.threshold.high-kpa` | `20.0` | Peak overpressure threshold for High blast hazard zone (heavy structural damage). |
-| `simulation.sedov.threshold.moderate-kpa` | `5.0` | Peak overpressure threshold for Moderate blast hazard zone (minor / glass damage). |
-| `simulation.physics.url` | `http://localhost:8000` | Base URL of Deep's external physics service (active when `simulation.engine=physics`). |
-| `simulation.physics.endpoint` | `/api/physics/simulate` | Endpoint path on the external physics service. |
-
-### Running with Internal Sedov-Taylor Physics Engine
+Run test suite:
 ```bash
-# Via command-line argument:
-gradle bootRun --args='--simulation.engine=sedov'
+# Python tests
+cd simulation && python -m unittest test_physics.py
 
-# Or via environment variable:
-SIMULATION_ENGINE=sedov gradle bootRun
+# Java tests
+cd backend && gradle test
 ```
-
-### Running with Mock Engine (Default for Local UI Testing)
-```bash
-gradle bootRun
-```
-
-### Running with External Physics Engine
-```bash
-gradle bootRun --args='--simulation.engine=physics --simulation.physics.url=http://localhost:8000'
-```
-
----
-
-## 🔬 Sedov-Taylor Blast Wave Physics Model
-
-When `simulation.engine=sedov` is selected, SafeZone AI calculates blast parameters analytically using self-similar strong-shock theory and Rankine-Hugoniot boundary conditions:
-
-### 1. Explosion Energy Conversion
-$$E = m_{\text{TNT}} \times 4.184 \times 10^6 \text{ Joules}$$
-
-### 2. Ambient Air Density ($\rho$)
-Calculated from the ideal gas law rather than hardcoded:
-$$T(\text{K}) = T(^\circ\text{C}) + 273.15,\quad P(\text{Pa}) = P(\text{kPa}) \times 1000$$
-$$\rho = \frac{P}{R_{\text{air}} \cdot T} \quad \left(R_{\text{air}} = 287.05 \text{ J}/(\text{kg}\cdot\text{K})\right)$$
-
-### 3. Shock Radius & Arrival Time
-The self-similar shock front radius $R(t)$ at time $t$ after detonation:
-$$R(t) = \xi \left( \frac{E}{\rho} \right)^{1/5} t^{2/5}$$
-Inverting for shock arrival time at asset distance $d$:
-$$t_{\text{arrival}} = \left( \frac{d}{\xi (E/\rho)^{1/5}} \right)^{5/2}$$
-
-### 4. Shock Propagation Velocity
-$$D(t) = \frac{dR}{dt} = \frac{2}{5} \frac{R(t)}{t}$$
-
-### 5. Peak Overpressure ($\Delta P$)
-Using the strong-shock Rankine-Hugoniot pressure jump condition immediately behind the shock front:
-$$\Delta P(R) = \frac{2}{\gamma + 1} \rho D(R)^2 = \frac{8\,\xi^5 E}{25\,(\gamma + 1)\,R^3} \text{ (Pa)}$$
-$$\Delta P_{\text{kPa}}(R) = \frac{\Delta P(R)}{1000}$$
-
-### 6. Hazard Zone Contour Radii
-Solving for the distance $R$ at which peak overpressure reaches threshold $\Delta P_{\text{threshold}}$:
-$$R_{\text{threshold}} = \left( \frac{8\,\xi^5 E}{25\,(\gamma + 1)\,(\Delta P_{\text{threshold, kPa}} \times 1000)} \right)^{1/3} \text{ meters}$$
-
-### 7. Assumptions & Limitations
-- **Point-Source Detonation:** Assumes instantaneous, point-source energy release in a homogeneous, unconfined atmosphere.
-- **Strong-Shock Approximation:** Rankine-Hugoniot pressure jump applies in the strong-shock regime; accuracy decreases in the very far acoustic field ($< 1$ kPa).
-- **Unreflected Incident Wave:** Does not include complex Mach stem reflection, ground reflection factors, or 3D CFD obstacle diffraction.
-- **Disclaimer:** This is an analytical educational/hackathon model designed for interactive safety scenario exploration. It is **NOT** a certified computational fluid dynamics (CFD) tool and must **NOT** be used for real life-critical plant safety operations.
-
-

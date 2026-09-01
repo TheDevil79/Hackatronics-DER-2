@@ -5,10 +5,7 @@ import com.safezone.dto.ApproachDirectionDto;
 import com.safezone.dto.AssetDto;
 import com.safezone.dto.DominoStepDto;
 import com.safezone.dto.EscapeRouteAssessmentDto;
-import com.safezone.dto.EscapeRouteDto;
-import com.safezone.dto.FacilityDto;
 import com.safezone.dto.HazardZoneDto;
-import com.safezone.dto.IncidentDto;
 import com.safezone.dto.Point2D;
 import com.safezone.dto.Position3DDto;
 import com.safezone.dto.SimulationRequestDto;
@@ -21,36 +18,26 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
  * =========================================================================================
- * SEDOV-TAYLOR BLAST SIMULATION ENGINE
+ * SEDOV-TAYLOR BLAST SIMULATION ENGINE (With Wind-Aware Hazard Propagation)
  * =========================================================================================
  * <p>
- * Implements an educational/hackathon analytical point-source blast wave simulation based on
- * the self-similar Sedov-Taylor solution and Rankine-Hugoniot strong-shock jump conditions.
- * </p>
- * <p>
- * <b>Governing Equations:</b>
+ * Core physics coordinator that computes analytical Sedov-Taylor blast expansion and
+ * point-source thermal radiation, coupled with directional wind modulation via {@link WindEffectModel}:
  * <ul>
- *   <li><b>TNT Energy:</b> {@code E = m_TNT * 4.184e6 J}</li>
- *   <li><b>Air Density:</b> {@code rho = P / (R_air * T)} with {@code R_air = 287.05 J/(kg*K)}</li>
- *   <li><b>Shock Radius:</b> {@code R(t) = xi * (E / rho)^(1/5) * t^(2/5)}</li>
- *   <li><b>Shock Velocity:</b> {@code D(t) = (2/5) * R(t) / t}</li>
- *   <li><b>Rankine-Hugoniot Overpressure:</b> {@code deltaP = (2 / (gamma + 1)) * rho * D^2 = (8 * xi^5 * E) / (25 * (gamma + 1) * R^3)}</li>
+ *   <li>Base Isotropic Physics: Sedov-Taylor self-similarity & Rankine-Hugoniot pressure jump</li>
+ *   <li>Wind Effect: Directional elongation downwind (windOrigin + 180°) and contraction upwind</li>
+ *   <li>Consequence Evaluation: {@link DamageAssessmentService}, {@link DominoAnalysisService}, {@link RouteAssessmentService}, {@link RiskAssessmentService}</li>
  * </ul>
- * </p>
- * <p>
- * <b>DISCLAIMER:</b> This is a simplified analytical engineering model for hackathon/educational
- * demonstration and is NOT certified for real industrial safety or life-critical emergency management.
  * </p>
  */
 @Component
-@ConditionalOnProperty(name = "simulation.engine", havingValue = "sedov")
 public class SedovTaylorSimulationEngine implements SimulationEngine {
 
     private static final Logger log = LoggerFactory.getLogger(SedovTaylorSimulationEngine.class);
@@ -59,6 +46,8 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
     public static final double JOULES_PER_KG_TNT = 4.184e6;
     public static final double SPECIFIC_GAS_CONSTANT_AIR = 287.05; // J/(kg*K)
     public static final double KELVIN_OFFSET = 273.15;
+    public static final double HEAT_OF_COMBUSTION_LPG = 46.0e6; // J/kg
+    public static final double RADIATIVE_FRACTION = 0.25;
 
     private final double gamma;
     private final double xi;
@@ -67,13 +56,24 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
     private final double thresholdHighKPa;
     private final double thresholdModerateKPa;
 
+    private final DamageAssessmentService damageAssessmentService;
+    private final DominoAnalysisService dominoAnalysisService;
+    private final RouteAssessmentService routeAssessmentService;
+    private final RiskAssessmentService riskAssessmentService;
+    private final WindEffectModel windEffectModel;
+
     public SedovTaylorSimulationEngine(
             @Value("${simulation.sedov.gamma:1.4}") double gamma,
             @Value("${simulation.sedov.xi:1.033}") double xi,
             @Value("${simulation.sedov.polygon-points:36}") int numPolygonPoints,
             @Value("${simulation.sedov.threshold.critical-kpa:70.0}") double thresholdCriticalKPa,
             @Value("${simulation.sedov.threshold.high-kpa:20.0}") double thresholdHighKPa,
-            @Value("${simulation.sedov.threshold.moderate-kpa:5.0}") double thresholdModerateKPa
+            @Value("${simulation.sedov.threshold.moderate-kpa:5.0}") double thresholdModerateKPa,
+            DamageAssessmentService damageAssessmentService,
+            DominoAnalysisService dominoAnalysisService,
+            RouteAssessmentService routeAssessmentService,
+            RiskAssessmentService riskAssessmentService,
+            WindEffectModel windEffectModel
     ) {
         this.gamma = gamma;
         this.xi = xi;
@@ -81,6 +81,12 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
         this.thresholdCriticalKPa = thresholdCriticalKPa;
         this.thresholdHighKPa = thresholdHighKPa;
         this.thresholdModerateKPa = thresholdModerateKPa;
+
+        this.damageAssessmentService = damageAssessmentService;
+        this.dominoAnalysisService = dominoAnalysisService;
+        this.routeAssessmentService = routeAssessmentService;
+        this.riskAssessmentService = riskAssessmentService;
+        this.windEffectModel = windEffectModel;
 
         log.info("Initialized SedovTaylorSimulationEngine (gamma={}, xi={}, polygonPoints={}, thresholds=[{}, {}, {}] kPa)",
                 gamma, xi, this.numPolygonPoints, thresholdCriticalKPa, thresholdHighKPa, thresholdModerateKPa);
@@ -103,28 +109,94 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
         // 2. Calculate Ambient Air Density (kg/m^3)
         double airDensity = calculateAirDensityKgM3(request);
 
-        // 3. Identify Incident Epicenter
+        // 3. Extract Wind Parameters
+        double windSpeedMps = 0.0;
+        double windDirDegrees = 0.0;
+        if (request != null && request.wind() != null) {
+            windSpeedMps = Math.max(0.0, request.wind().speedMps());
+            windDirDegrees = ((request.wind().directionDegreesFromNorth() % 360.0) + 360.0) % 360.0;
+        }
+
+        // 4. Identify Incident Epicenter
         Position3DDto epicenter = findEpicenter(request);
 
-        // 4. Calculate Blast Hazard Zones (70 kPa, 20 kPa, 5 kPa)
-        List<HazardZoneDto> hazardZones = calculateBlastHazardZones(energyJoules, airDensity, epicenter);
+        // 5. Calculate Wind-Modulated Blast Hazard Zones (70 kPa, 20 kPa, 5 kPa)
+        List<HazardZoneDto> hazardZones = calculateBlastHazardZones(energyJoules, airDensity, epicenter, windSpeedMps, windDirDegrees);
 
-        // 5. Evaluate Asset Exposure (Distance and Overpressure)
-        List<AffectedAssetDto> affectedAssets = calculateAffectedAssets(request, energyJoules, airDensity, epicenter);
+        // 6. Directional Physics Exposure Provider (Overpressure & Point-Source Thermal Flux)
+        double fuelMassKg = (request != null && request.incident() != null && request.incident().parameters() != null && request.incident().parameters().fuelMassKg() != null)
+                ? request.incident().parameters().fuelMassKg() : 0.0;
+        double releaseDurationSeconds = (request != null && request.incident() != null && request.incident().parameters() != null && request.incident().parameters().releaseDurationSeconds() != null)
+                ? request.incident().parameters().releaseDurationSeconds() : 45.0;
 
-        // 6. Evaluate Domino Escalation Chain
-        List<DominoStepDto> dominoPropagation = evaluateDominoPropagation(request, affectedAssets);
+        final double finalWindSpeed = windSpeedMps;
+        final double finalWindDir = windDirDegrees;
 
-        // 7. Evaluate Escape Route Exposure
-        List<EscapeRouteAssessmentDto> escapeRoutesAssessment = evaluateEscapeRoutes(request, hazardZones, epicenter);
+        DamageAssessmentService.PhysicalExposureProvider exposureProvider = new DamageAssessmentService.PhysicalExposureProvider() {
+            @Override
+            public double getPeakOverpressureKPa(double distanceMeters) {
+                return calculatePeakOverpressureKPa(distanceMeters, energyJoules, airDensity);
+            }
 
-        // 8. Determine Recommended Approach Direction
+            @Override
+            public double getPeakOverpressureKPa(double distanceMeters, double bearingDegrees) {
+                double effDist = calculateEffectiveDistance(distanceMeters, bearingDegrees, finalWindSpeed, finalWindDir);
+                return calculatePeakOverpressureKPa(effDist, energyJoules, airDensity);
+            }
+
+            @Override
+            public double getPeakThermalRadiationKwM2(double distanceMeters) {
+                return calculatePeakThermalFluxKwM2(distanceMeters, fuelMassKg, releaseDurationSeconds);
+            }
+
+            @Override
+            public double getPeakThermalRadiationKwM2(double distanceMeters, double bearingDegrees) {
+                double effDist = calculateEffectiveDistance(distanceMeters, bearingDegrees, finalWindSpeed, finalWindDir);
+                return calculatePeakThermalFluxKwM2(effDist, fuelMassKg, releaseDurationSeconds);
+            }
+        };
+
+        // 7. Consequence Layer: Damage Assessment
+        String sourceAssetId = (request != null && request.incident() != null) ? request.incident().sourceAssetId() : null;
+        List<AssetDto> assets = (request != null && request.facility() != null) ? request.facility().assets() : List.of();
+        List<AffectedAssetDto> affectedAssets = damageAssessmentService.assessAllAssets(
+                assets, sourceAssetId, epicenter.x(), epicenter.y(), exposureProvider
+        );
+
+        // 8. Consequence Layer: Domino Propagation with Wind Context
+        Map<String, String> assetOrientations = new HashMap<>();
+        for (AssetDto asset : assets) {
+            if (asset != null && asset.position() != null) {
+                double bearing = windEffectModel.calculateBearingDegrees(epicenter.x(), epicenter.y(), asset.position().x(), asset.position().y());
+                String orientation = windEffectModel.getWindOrientationCategory(bearing, finalWindDir);
+                assetOrientations.put(asset.assetId(), orientation);
+            }
+        }
+        DominoAnalysisService.WindContext windContext = new DominoAnalysisService.WindContext(
+                finalWindSpeed > 0.0, finalWindSpeed, finalWindDir, assetOrientations
+        );
+
+        DominoAnalysisService.PropagationTimeSolver timeSolver = distance -> calculateArrivalTimeSeconds(distance, energyJoules, airDensity);
+        List<DominoStepDto> dominoPropagation = dominoAnalysisService.evaluateDominoChain(
+                request != null ? request.incident() : null, affectedAssets, timeSolver, windContext
+        );
+
+        // 9. Consequence Layer: Escape Route Assessment
+        List<EscapeRouteAssessmentDto> escapeRoutesAssessment = routeAssessmentService.assessRoutes(
+                (request != null && request.facility() != null) ? request.facility().escapeRoutes() : List.of(),
+                epicenter.x(), epicenter.y(), exposureProvider
+        );
+
+        // 10. Determine Recommended Approach Direction
         ApproachDirectionDto recommendedApproachDirection = calculateApproachDirection(request);
 
-        // 9. Overall Severity & Risk Scoring
-        String overallSeverity = determineOverallSeverity(affectedAssets, hazardZones);
-        double overallRiskScore = calculateOverallRiskScore(affectedAssets, hazardZones);
-        String summary = generateSummary(request, energyJoules, hazardZones, affectedAssets);
+        // 11. Consequence Layer: Comprehensive Risk & Severity Assessment
+        RiskAssessmentService.RiskEvaluation riskEval = riskAssessmentService.evaluateRisk(
+                affectedAssets, dominoPropagation, escapeRoutesAssessment
+        );
+        String overallSeverity = riskEval.overallSeverity();
+        double overallRiskScore = riskEval.overallRiskScore();
+        String summary = generateSummary(request, energyJoules, hazardZones, affectedAssets, windSpeedMps, windDirDegrees);
 
         double executionTimeMs = (System.nanoTime() - startTime) / 1_000_000.0;
 
@@ -153,15 +225,12 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
             if (tntMassKg != null && tntMassKg > 0) {
                 return tntMassKg * JOULES_PER_KG_TNT;
             }
-            // Secondary fallback: fuel mass with generic vapor cloud yield if TNT mass missing
             Double fuelMassKg = request.incident().parameters().fuelMassKg();
             if (fuelMassKg != null && fuelMassKg > 0) {
                 double genericYield = 0.10; // 10% blast yield
-                double heatOfCombustionLpg = 46.0e6; // J/kg
-                return fuelMassKg * heatOfCombustionLpg * genericYield;
+                return fuelMassKg * HEAT_OF_COMBUSTION_LPG * genericYield;
             }
         }
-        // Default minimal fallback for robustness
         return 100.0 * JOULES_PER_KG_TNT;
     }
 
@@ -188,6 +257,16 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
         if (pressurePa <= 0) pressurePa = 101325.0;
 
         return pressurePa / (SPECIFIC_GAS_CONSTANT_AIR * tempK);
+    }
+
+    /**
+     * Computes the effective isotropic distance experienced by an asset at a given bearing.
+     */
+    public double calculateEffectiveDistance(double distanceMeters, double bearingDegrees, double windSpeedMps, double windDirDegrees) {
+        if (distanceMeters <= 0.0) return 0.0;
+        double factor = windEffectModel.calculateDirectionalWindFactor(bearingDegrees, windSpeedMps, windDirDegrees);
+        if (factor <= 0.0 || Double.isNaN(factor)) factor = 1.0;
+        return distanceMeters / factor;
     }
 
     /**
@@ -229,13 +308,26 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
      */
     public double calculatePeakOverpressureKPa(double distanceMeters, double energyJoules, double airDensity) {
         if (distanceMeters <= 0.001) {
-            // Epicenter source point singularity: return maximum bound overpressure
-            return 500.0;
+            return 500.0; // Epicenter bound
         }
         double numerator = 8.0 * Math.pow(xi, 5.0) * energyJoules;
         double denominator = 25.0 * (gamma + 1.0) * Math.pow(distanceMeters, 3.0);
         double overpressurePa = numerator / denominator;
-        return overpressurePa / 1000.0; // convert Pa to kPa
+        return overpressurePa / 1000.0;
+    }
+
+    /**
+     * Solves for peak thermal radiation flux in kW/m^2 using point-source radiation.
+     */
+    public double calculatePeakThermalFluxKwM2(double distanceMeters, double fuelMassKg, double releaseDurationSeconds) {
+        if (fuelMassKg <= 0 || distanceMeters <= 0.001) {
+            return distanceMeters <= 0.001 ? 120.0 : 0.0;
+        }
+        double duration = Math.max(1.0, releaseDurationSeconds);
+        double burnRateKgS = fuelMassKg / duration;
+        double totalThermalPowerWatts = burnRateKgS * HEAT_OF_COMBUSTION_LPG * RADIATIVE_FRACTION;
+        double fluxWattsM2 = totalThermalPowerWatts / (4.0 * Math.PI * Math.pow(distanceMeters, 2.0));
+        return Math.min(150.0, fluxWattsM2 / 1000.0);
     }
 
     /**
@@ -266,7 +358,13 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
         return new Position3DDto(0.0, 0.0, 0.0);
     }
 
-    private List<HazardZoneDto> calculateBlastHazardZones(double energyJoules, double airDensity, Position3DDto epicenter) {
+    public List<HazardZoneDto> calculateBlastHazardZones(
+            double energyJoules,
+            double airDensity,
+            Position3DDto epicenter,
+            double windSpeedMps,
+            double windDirDegrees
+    ) {
         List<HazardZoneDto> zones = new ArrayList<>();
 
         double r70 = calculateRadiusForOverpressureThreshold(thresholdCriticalKPa, energyJoules, airDensity);
@@ -280,7 +378,7 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
                 "kPa",
                 "CRITICAL",
                 roundToTwoDecimals(r70),
-                generateCircularPolygon(epicenter.x(), epicenter.y(), r70, numPolygonPoints),
+                generateWindDependentPolygon(epicenter.x(), epicenter.y(), r70, numPolygonPoints, windSpeedMps, windDirDegrees),
                 "Sedov-Taylor Blast Zone: Total structural destruction, heavy equipment displacement, near-100% human lethality."
         ));
 
@@ -291,7 +389,7 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
                 "kPa",
                 "HIGH",
                 roundToTwoDecimals(r20),
-                generateCircularPolygon(epicenter.x(), epicenter.y(), r20, numPolygonPoints),
+                generateWindDependentPolygon(epicenter.x(), epicenter.y(), r20, numPolygonPoints, windSpeedMps, windDirDegrees),
                 "Sedov-Taylor Blast Zone: Moderate to severe structural damage, distortion of steel equipment frames, wall collapse."
         ));
 
@@ -302,185 +400,42 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
                 "kPa",
                 "MODERATE",
                 roundToTwoDecimals(r5),
-                generateCircularPolygon(epicenter.x(), epicenter.y(), r5, numPolygonPoints),
+                generateWindDependentPolygon(epicenter.x(), epicenter.y(), r5, numPolygonPoints, windSpeedMps, windDirDegrees),
                 "Sedov-Taylor Blast Zone: Minor damage, window and partition failure, glass projectile hazard to personnel."
         ));
 
         return zones;
     }
 
-    private List<Point2D> generateCircularPolygon(double centerX, double centerY, double radiusMeters, int points) {
+    private List<Point2D> generateWindDependentPolygon(
+            double centerX,
+            double centerY,
+            double baseRadiusMeters,
+            int numPoints,
+            double windSpeedMps,
+            double windDirDegrees
+    ) {
         List<Point2D> polygon = new ArrayList<>();
-        double angleStep = (2.0 * Math.PI) / points;
-        for (int i = 0; i < points; i++) {
-            double angle = i * angleStep;
-            double px = centerX + radiusMeters * Math.cos(angle);
-            double py = centerY + radiusMeters * Math.sin(angle);
-            polygon.add(new Point2D(roundToTwoDecimals(px), roundToTwoDecimals(py)));
+        double angleStep = (2.0 * Math.PI) / numPoints;
+
+        for (int i = 0; i < numPoints; i++) {
+            double thetaRad = i * angleStep;
+            double thetaDeg = (Math.toDegrees(thetaRad) + 360.0) % 360.0;
+
+            double directionalFactor = windEffectModel.calculateDirectionalWindFactor(thetaDeg, windSpeedMps, windDirDegrees);
+            double radius = baseRadiusMeters * directionalFactor;
+
+            // In local Cartesian coordinates:
+            // 0° = North, 90° = East, 180° = South, 270° = West
+            // x (East-West) = centerX + radius * sin(theta)
+            // y (North-South) = centerY + radius * cos(theta)
+            double x = centerX + radius * Math.sin(thetaRad);
+            double y = centerY + radius * Math.cos(thetaRad);
+
+            polygon.add(new Point2D(roundToTwoDecimals(x), roundToTwoDecimals(y)));
         }
+
         return polygon;
-    }
-
-    private List<AffectedAssetDto> calculateAffectedAssets(
-            SimulationRequestDto request,
-            double energyJoules,
-            double airDensity,
-            Position3DDto epicenter
-    ) {
-        List<AffectedAssetDto> affectedList = new ArrayList<>();
-        if (request == null || request.facility() == null || request.facility().assets() == null) {
-            return affectedList;
-        }
-
-        String sourceAssetId = (request.incident() != null) ? request.incident().sourceAssetId() : null;
-
-        for (AssetDto asset : request.facility().assets()) {
-            if (asset == null) continue;
-
-            double assetX = (asset.position() != null) ? asset.position().x() : 0.0;
-            double assetY = (asset.position() != null) ? asset.position().y() : 0.0;
-
-            double distance = Math.hypot(assetX - epicenter.x(), assetY - epicenter.y());
-            boolean isSource = asset.assetId() != null && asset.assetId().equals(sourceAssetId);
-
-            double peakOverpressureKPa;
-            String damageState;
-            double failureProbability;
-            String summary;
-
-            if (isSource || distance < 1.0) {
-                distance = 0.0;
-                peakOverpressureKPa = 350.0; // Near-field epicenter limit
-                damageState = "TOTAL_LOSS";
-                failureProbability = 1.0;
-                summary = "Primary explosion epicenter. Total catastrophic structural breach.";
-            } else {
-                peakOverpressureKPa = calculatePeakOverpressureKPa(distance, energyJoules, airDensity);
-
-                if (peakOverpressureKPa >= thresholdCriticalKPa) {
-                    damageState = "STRUCTURAL_DAMAGE";
-                    failureProbability = Math.min(1.0, 0.70 + (peakOverpressureKPa - thresholdCriticalKPa) / 200.0);
-                    summary = String.format("High blast overpressure (%.1f kPa). Major structural deformation and rupture risk.", peakOverpressureKPa);
-                } else if (peakOverpressureKPa >= thresholdHighKPa) {
-                    damageState = "STRUCTURAL_DAMAGE";
-                    failureProbability = 0.40 + (peakOverpressureKPa - thresholdHighKPa) / (thresholdCriticalKPa - thresholdHighKPa) * 0.30;
-                    summary = String.format("Significant overpressure (%.1f kPa). Structural distortion and piping stress.", peakOverpressureKPa);
-                } else if (peakOverpressureKPa >= thresholdModerateKPa) {
-                    damageState = "MINOR_DAMAGE";
-                    failureProbability = 0.05 + (peakOverpressureKPa - thresholdModerateKPa) / (thresholdHighKPa - thresholdModerateKPa) * 0.15;
-                    summary = String.format("Moderate shock wave (%.1f kPa). Non-structural damage and cladding failure.", peakOverpressureKPa);
-                } else {
-                    damageState = "INTACT";
-                    failureProbability = 0.0;
-                    summary = String.format("Low blast exposure (%.2f kPa). Structure intact.", peakOverpressureKPa);
-                }
-            }
-
-            affectedList.add(new AffectedAssetDto(
-                    asset.assetId(),
-                    asset.name() != null ? asset.name() : asset.assetId(),
-                    roundToTwoDecimals(distance),
-                    0.0, // Thermal radiation explicitly marked 0.0 (Sedov blast engine models overpressure)
-                    roundToTwoDecimals(peakOverpressureKPa),
-                    damageState,
-                    roundToTwoDecimals(failureProbability),
-                    null, // Thermal vessel rupture time unavailable in blast-only engine
-                    summary
-            ));
-        }
-
-        // Sort affected assets by distance from epicenter
-        affectedList.sort(Comparator.comparingDouble(AffectedAssetDto::distanceMeters));
-        return affectedList;
-    }
-
-    private List<DominoStepDto> evaluateDominoPropagation(SimulationRequestDto request, List<AffectedAssetDto> affectedAssets) {
-        List<DominoStepDto> steps = new ArrayList<>();
-        if (request == null || request.incident() == null || affectedAssets == null) {
-            return steps;
-        }
-
-        String sourceId = request.incident().sourceAssetId();
-        int stepOrder = 1;
-
-        for (AffectedAssetDto asset : affectedAssets) {
-            if (asset.assetId().equals(sourceId)) continue;
-
-            if (asset.failureProbabilityEstimate() >= 0.30) {
-                double arrivalDelay = calculateArrivalTimeSeconds(asset.distanceMeters(),
-                        calculateExplosionEnergyJoules(request), calculateAirDensityKgM3(request));
-
-                steps.add(new DominoStepDto(
-                        stepOrder++,
-                        sourceId,
-                        asset.assetId(),
-                        "OVERPRESSURE_COLLAPSE",
-                        roundToTwoDecimals(asset.failureProbabilityEstimate()),
-                        roundToTwoDecimals(Math.max(0.1, arrivalDelay)),
-                        String.format("Sedov shock wave overpressure (%.1f kPa) threatens adjacent unit integrity.", asset.peakOverpressureKPa())
-                ));
-            }
-        }
-        return steps;
-    }
-
-    private List<EscapeRouteAssessmentDto> evaluateEscapeRoutes(
-            SimulationRequestDto request,
-            List<HazardZoneDto> hazardZones,
-            Position3DDto epicenter
-    ) {
-        List<EscapeRouteAssessmentDto> assessments = new ArrayList<>();
-        if (request == null || request.facility() == null || request.facility().escapeRoutes() == null) {
-            return assessments;
-        }
-
-        double r20 = 0.0;
-        for (HazardZoneDto zone : hazardZones) {
-            if (zone.thresholdValue() == thresholdHighKPa) {
-                r20 = zone.radiusMeters();
-            }
-        }
-
-        for (EscapeRouteDto route : request.facility().escapeRoutes()) {
-            if (route == null) continue;
-
-            double minDistanceToEpicenter = Double.MAX_VALUE;
-            if (route.points() != null) {
-                for (Point2D pt : route.points()) {
-                    double dist = Math.hypot(pt.x() - epicenter.x(), pt.y() - epicenter.y());
-                    if (dist < minDistanceToEpicenter) {
-                        minDistanceToEpicenter = dist;
-                    }
-                }
-            }
-
-            String safetyStatus;
-            Double cutoffDistance = null;
-            String recommendation;
-
-            if (minDistanceToEpicenter < r20) {
-                safetyStatus = "UNSAFE";
-                cutoffDistance = roundToTwoDecimals(minDistanceToEpicenter);
-                recommendation = "DO NOT USE. Route traverses high overpressure blast contour.";
-            } else if (minDistanceToEpicenter < r20 * 1.5) {
-                safetyStatus = "CAUTION";
-                recommendation = "CAUTION. Route is near moderate overpressure perimeter. Use alternative if possible.";
-            } else {
-                safetyStatus = "SAFE";
-                recommendation = "RECOMMENDED EVACUATION ROUTE. Protected by distance from blast epicenter.";
-            }
-
-            assessments.add(new EscapeRouteAssessmentDto(
-                    route.routeId(),
-                    route.name() != null ? route.name() : route.routeId(),
-                    safetyStatus,
-                    0.0,
-                    roundToTwoDecimals(calculatePeakOverpressureKPa(minDistanceToEpicenter, calculateExplosionEnergyJoules(request), calculateAirDensityKgM3(request))),
-                    cutoffDistance,
-                    recommendation
-            ));
-        }
-        return assessments;
     }
 
     private ApproachDirectionDto calculateApproachDirection(SimulationRequestDto request) {
@@ -489,7 +444,6 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
             windFromNorth = request.wind().directionDegreesFromNorth();
         }
 
-        // Optimal approach is directly upwind from the incident
         double approachBearing = (windFromNorth + 180.0) % 360.0;
         String compass = degreesToCompass(approachBearing);
 
@@ -502,39 +456,33 @@ public class SedovTaylorSimulationEngine implements SimulationEngine {
         );
     }
 
-    private String determineOverallSeverity(List<AffectedAssetDto> affectedAssets, List<HazardZoneDto> hazardZones) {
-        boolean hasCriticalAsset = affectedAssets.stream()
-                .anyMatch(a -> "TOTAL_LOSS".equals(a.damageState()) || a.failureProbabilityEstimate() >= 0.70);
-        if (hasCriticalAsset) return "CRITICAL";
-
-        boolean hasHighAsset = affectedAssets.stream()
-                .anyMatch(a -> "STRUCTURAL_DAMAGE".equals(a.damageState()) || a.failureProbabilityEstimate() >= 0.30);
-        if (hasHighAsset) return "HIGH";
-
-        return "MODERATE";
-    }
-
-    private double calculateOverallRiskScore(List<AffectedAssetDto> affectedAssets, List<HazardZoneDto> hazardZones) {
-        double maxRisk = 0.0;
-        for (AffectedAssetDto asset : affectedAssets) {
-            double assetRisk = asset.failureProbabilityEstimate() * 100.0;
-            if (assetRisk > maxRisk) {
-                maxRisk = assetRisk;
-            }
-        }
-        return roundToTwoDecimals(Math.min(100.0, Math.max(10.0, maxRisk * 0.85 + 15.0)));
-    }
-
-    private String generateSummary(SimulationRequestDto request, double energyJoules, List<HazardZoneDto> hazardZones, List<AffectedAssetDto> affectedAssets) {
+    private String generateSummary(
+            SimulationRequestDto request,
+            double energyJoules,
+            List<HazardZoneDto> hazardZones,
+            List<AffectedAssetDto> affectedAssets,
+            double windSpeedMps,
+            double windDirDegrees
+    ) {
         double tntEquivalentKg = energyJoules / JOULES_PER_KG_TNT;
         String sourceId = (request != null && request.incident() != null) ? request.incident().sourceAssetId() : "Source";
 
         double r70 = hazardZones.isEmpty() ? 0.0 : hazardZones.get(0).radiusMeters();
-        double r20 = hazardZones.size() > 1 ? hazardZones.get(1).radiusMeters();
+        double r20 = hazardZones.size() > 1 ? hazardZones.get(1).radiusMeters() : 0.0;
+
+        String windText;
+        if (windSpeedMps > 0.0) {
+            double downwindDir = windEffectModel.calculateDownwindDirection(windDirDegrees);
+            double maxAmplification = windEffectModel.calculateDirectionalWindFactor(downwindDir, windSpeedMps, windDirDegrees);
+            windText = String.format(" Wind-aware directional propagation active (Wind: %.1f m/s from %.0f° [%s], downwind axis: %.0f°, max amplification: %.2fx).",
+                    windSpeedMps, windDirDegrees, degreesToCompass(windDirDegrees), downwindDir, maxAmplification);
+        } else {
+            windText = " Calm atmospheric conditions (isotropic propagation).";
+        }
 
         return String.format(
-                "Sedov-Taylor Blast Simulation at %s (%.0f kg TNT equivalent, Energy: %.2e J). Critical 70 kPa blast radius: %.1f m; 20 kPa radius: %.1f m. Total affected assets: %d.",
-                sourceId, tntEquivalentKg, energyJoules, r70, r20, affectedAssets.size()
+                "Sedov-Taylor Blast Simulation at %s (%.0f kg TNT equivalent, Energy: %.2e J). Critical 70 kPa blast radius: %.1f m; 20 kPa radius: %.1f m. Total affected assets: %d.%s",
+                sourceId, tntEquivalentKg, energyJoules, r70, r20, affectedAssets.size(), windText
         );
     }
 

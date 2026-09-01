@@ -21,8 +21,8 @@ SafeZone AI is a physics-backed industrial hazard and domino-effect threat-zone 
 ```
 SafeZone-AI/
 ├── frontend/          # React / Map UI / Factory layout editor
-├── backend/           # FastAPI / REST APIs / Database / Coordination
-├── simulation/        # Physics & explosion/radiation threat models
+├── backend/           # Spring Boot REST API / Consequence analysis / Integration pipeline
+├── simulation/        # Python FastAPI wind-aware Sedov-Taylor blast physics service
 ├── shared/            # Common schemas, types, and contracts
 ├── docs/              # Technical documentation & architecture notes
 ├── .gitignore         # Git ignore rules for Node, Python, env, and OS files

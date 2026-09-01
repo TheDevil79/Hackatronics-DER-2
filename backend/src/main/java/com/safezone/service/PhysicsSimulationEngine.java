@@ -47,13 +47,8 @@ public class PhysicsSimulationEngine implements SimulationEngine {
         this.baseUrl = baseUrl;
         this.endpoint = endpoint;
 
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(Duration.ofMillis(connectTimeoutMs));
-        requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
-
         this.restClient = restClientBuilder
                 .baseUrl(baseUrl)
-                .requestFactory(requestFactory)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .build();

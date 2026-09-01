@@ -36,7 +36,6 @@ import java.util.UUID;
  * </p>
  */
 @Component
-@ConditionalOnProperty(name = "simulation.engine", havingValue = "mock", matchIfMissing = true)
 public class MockSimulationEngine implements SimulationEngine {
 
     private static final Logger log = LoggerFactory.getLogger(MockSimulationEngine.class);

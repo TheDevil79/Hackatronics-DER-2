@@ -11,15 +11,24 @@ desktop.ini
 *.pem
 *.key
 
+# Java & Gradle
+.gradle/
+**/build/
+!src/**/build/
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/

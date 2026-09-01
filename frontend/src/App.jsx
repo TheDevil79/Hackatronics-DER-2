@@ -116,6 +116,27 @@ function App() {
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alerts, setAlerts] = useState([
+    {
+      id: "alert-1",
+      level: "CRITICAL",
+      title: "Vapor cloud explosion risk at T-101",
+      detail: "Immediate evacuation recommended. Monitor the north corridor and avoid the blast radius.",
+    },
+    {
+      id: "alert-2",
+      level: "HIGH",
+      title: "Assembly route restricted",
+      detail: "South corridor is degraded; use the designated safe exit path instead.",
+    },
+    {
+      id: "alert-3",
+      level: "INFO",
+      title: "Safety team dispatched",
+      detail: "Emergency response personnel are en route to the affected perimeter.",
+    },
+  ]);
 
   // Environmental conditions
   const [windSpeed, setWindSpeed] = useState("5.4");
@@ -317,6 +338,9 @@ function App() {
             setSearch={setSearch}
             simulationResult={simulationResult}
             setPage={setPage}
+            alerts={alerts}
+            alertOpen={alertOpen}
+            setAlertOpen={setAlertOpen}
           />
 
           {page === "dashboard" && (
@@ -600,7 +624,7 @@ function Sidebar({ page, setPage, open }) {
    PAGE HEADER
    ========================================================= */
 
-function PageHeader({ page, search, setSearch, simulationResult, setPage }) {
+function PageHeader({ page, search, setSearch, simulationResult, setPage, alerts, alertOpen, setAlertOpen }) {
   const data = PAGE_DATA[page] || { title: page, subtitle: "" };
   const sourceId = simulationResult?.parameters?.sourceAssetId || "T-101";
 
@@ -647,10 +671,37 @@ function PageHeader({ page, search, setSearch, simulationResult, setPage }) {
           <kbd>⌘ K</kbd>
         </div>
 
-        <button className="notification" title="Alerts">
-          <span />
-          ◇
-        </button>
+        <div className="notification-wrap">
+          <button
+            className={`notification ${alerts?.length ? "alert-flash" : ""} ${alertOpen ? "active" : ""}`}
+            title="Alerts"
+            onClick={() => setAlertOpen((value) => !value)}
+            type="button"
+          >
+            <span className="alert-dot" />
+            <span className="alert-badge">{alerts?.length || 0}</span>
+            ◇
+          </button>
+
+          {alertOpen && (
+            <div className="alert-popover">
+              <div className="alert-popover-header">
+                <strong>Emergency Alerts</strong>
+                <span>{alerts?.length || 0} active</span>
+              </div>
+
+              {alerts?.map((alert) => (
+                <div className={`alert-item ${alert.level.toLowerCase()}`} key={alert.id}>
+                  <div className="alert-item-header">
+                    <span className="alert-pill">{alert.level}</span>
+                  </div>
+                  <strong>{alert.title}</strong>
+                  <small>{alert.detail}</small>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2285,310 +2336,346 @@ function BlastAnalysis({
 
 function Evacuation({ assets, simulationResult }) {
   const sourceId = simulationResult?.parameters?.sourceAssetId || "T-101";
-  const sourceAsset = assets.find((a) => a.id === sourceId) || assets[0] || { x: 24, y: 28 };
-  const sourceX = sourceAsset.x || 24;
-  const sourceY = sourceAsset.y || 28;
+  const sourceAsset = assets.find((a) => a.id === sourceId) || assets[0] || { x: 50, y: 52 };
+  const hazardX = Number(sourceAsset.x ?? 50);
+  const hazardY = Number(sourceAsset.y ?? 52);
 
-  // Dynamic gate & exit vulnerability based on distance to epicenter
-  const assessedGates = [
-    { id: "GATE-A", name: "GATE A (NORTH MAIN)", x: 12, y: 14, type: "gate" },
-    { id: "SAFE-01", name: "SAFE HAVEN ALPHA (SHELTER)", x: 82, y: 16, type: "shelter" },
-    { id: "EXIT-02", name: "EMERGENCY EXIT 02 (WEST)", x: 8, y: 62, type: "exit" },
-    { id: "GATE-B", name: "GATE B (SOUTHEAST MAIN)", x: 85, y: 84, type: "gate" },
-  ].map((g) => {
-    const dist = Math.hypot(g.x - sourceX, g.y - sourceY);
-    const isCompromised = dist < 32; // within ~32% visual danger envelope
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+  const [nodes, setNodes] = useState([
+    { id: "YOU", label: "You", x: 26, y: 74, kind: "worker" },
+    { id: "T-101", label: "T-101", x: 22, y: 58, kind: "tank" },
+    { id: "T-102", label: "T-102", x: 34, y: 53, kind: "tank" },
+    { id: "B-01", label: "Boiler B-01", x: 44, y: 47, kind: "equipment" },
+    { id: "WH-02", label: "Warehouse 02", x: 56, y: 60, kind: "storage" },
+    { id: "CTRL-1", label: "Control Room", x: 63, y: 55, kind: "facility" },
+    { id: "NORTH", label: "North Hall", x: 29, y: 36, kind: "corridor" },
+    { id: "EAST", label: "East Corridor", x: 67, y: 35, kind: "corridor" },
+    { id: "SAFE-01", label: "Safe Zone", x: 74, y: 43, kind: "safe" },
+    { id: "EXIT1", label: "Exit1", x: 15, y: 18, kind: "exit" },
+    { id: "EXIT2", label: "Exit2", x: 84, y: 68, kind: "exit" },
+    { id: "EXIT3", label: "Exit3", x: 83, y: 19, kind: "exit" },
+  ]);
+
+  const edges = [
+    ["T-101", "T-102"],
+    ["T-102", "B-01"],
+    ["B-01", "WH-02"],
+    ["WH-02", "CTRL-1"],
+    ["CTRL-1", "SAFE-01"],
+    ["SAFE-01", "EXIT2"],
+    ["SAFE-01", "EXIT3"],
+    ["NORTH", "T-101"],
+    ["NORTH", "T-102"],
+    ["NORTH", "B-01"],
+    ["NORTH", "EXIT1"],
+    ["EAST", "WH-02"],
+    ["EAST", "SAFE-01"],
+    ["EAST", "EXIT2"],
+    ["EAST", "EXIT3"],
+    ["NORTH", "EAST"],
+  ];
+
+  const getNodeById = (id) => nodes.find((node) => node.id === id);
+  const getNodeRisk = (node) => {
+    const dist = Math.hypot(node.x - hazardX, node.y - hazardY);
+    const blast = simulationResult?.blastMetrics?.finalRadiusMeters || 90;
+    const raw = clamp(1 - dist / (blast * 1.25), 0, 1);
+    return clamp(raw * 0.8 + (simulationResult?.hazardZones?.length ? 0.25 : 0.1), 0, 1);
+  };
+
+  const findRoute = (startId, exitId) => {
+    const queue = [{ id: startId, cost: 0, path: [startId] }];
+    const visited = new Set();
+    const best = new Map();
+    best.set(startId, 0);
+
+    while (queue.length > 0) {
+      queue.sort((a, b) => a.cost - b.cost);
+      const current = queue.shift();
+      if (current.id === exitId) return current.path;
+      if (visited.has(current.id)) continue;
+      visited.add(current.id);
+
+      const currentNode = getNodeById(current.id);
+      const neighbors = edges
+        .filter(([from]) => from === current.id)
+        .map(([, to]) => to)
+        .concat(edges.filter(([from, to]) => to === current.id).map(([from]) => from));
+
+      for (const neighborId of neighbors) {
+        if (visited.has(neighborId)) continue;
+        const neighborNode = getNodeById(neighborId);
+        const baseCost = Math.hypot(currentNode.x - neighborNode.x, currentNode.y - neighborNode.y);
+        const riskPenalty = getNodeRisk(neighborNode) * 45;
+        const newCost = current.cost + baseCost + riskPenalty;
+
+        if (newCost < (best.get(neighborId) ?? Number.POSITIVE_INFINITY)) {
+          best.set(neighborId, newCost);
+          queue.push({
+            id: neighborId,
+            cost: newCost,
+            path: [...current.path, neighborId],
+          });
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const getNearestNodeToUser = () => {
+    const userNode = getNodeById("YOU");
+    if (!userNode) return "T-101";
+
+    return nodes
+      .filter((node) => node.id !== "YOU")
+      .reduce((closest, node) => {
+        const distance = Math.hypot(node.x - userNode.x, node.y - userNode.y);
+        return distance < closest.distance ? { id: node.id, distance } : closest;
+      }, { id: "T-101", distance: Number.POSITIVE_INFINITY }).id;
+  };
+
+  const exitOptions = [
+    { id: "EXIT1", label: "Exit1", riskLevel: "LOW" },
+    { id: "EXIT2", label: "Exit2", riskLevel: "LOW" },
+    { id: "EXIT3", label: "Exit3", riskLevel: "MEDIUM" },
+  ];
+
+  const [selectedExitId, setSelectedExitId] = useState("EXIT2");
+  const routeStartId = getNearestNodeToUser();
+
+  const routeOptions = exitOptions.map((exit) => {
+    const path = findRoute(routeStartId, exit.id);
+    const cost = path
+      ? path.slice(1).reduce((total, nextId) => {
+          const prev = getNodeById(path[path.indexOf(nextId) - 1]);
+          const current = getNodeById(nextId);
+          return total + Math.hypot((prev?.x ?? 0) - (current?.x ?? 0), (prev?.y ?? 0) - (current?.y ?? 0));
+        }, 0)
+      : Infinity;
+    const risk = path
+      ? path.reduce((total, nodeId) => total + getNodeRisk(getNodeById(nodeId)), 0) / path.length
+      : 1;
+    const status = path && risk <= 0.72 ? "SAFE" : path ? "UNSAFE" : "NO_PATH";
+
     return {
-      ...g,
-      status: isCompromised ? "DANGER" : "SAFE",
-      statusText: isCompromised ? "⛔ COMPROMISED - IN BLAST RADIUS" : "✓ CLEAR & SAFE (RECOMMENDED)",
-      distanceM: Math.round(dist * 4.8)
+      ...exit,
+      path,
+      cost,
+      risk,
+      status,
+      time: path ? Math.round(cost / 1.2) : null,
     };
   });
 
-  const gateA = assessedGates.find((g) => g.id === "GATE-A");
-  const gateB = assessedGates.find((g) => g.id === "GATE-B");
-  const shelter = assessedGates.find((g) => g.id === "SAFE-01");
+  const recommendedExit = routeOptions
+    .filter((route) => route.status === "SAFE")
+    .sort((a, b) => a.risk - b.risk || a.cost - b.cost)[0]
+    || routeOptions
+      .filter((route) => route.status === "UNSAFE")
+      .sort((a, b) => a.risk - b.risk || a.cost - b.cost)[0]
+    || routeOptions[0];
 
-  const routes = [
-    {
-      routeId: "ROUTE-B1",
-      name: `Southeast Main Corridor (${gateB.name})`,
-      targetGateId: "GATE-B",
-      safetyStatus: gateB.status,
-      maxThermalExposureKwM2: gateB.status === "SAFE" ? 0.9 : 19.4,
-      maxOverpressureKPa: gateB.status === "SAFE" ? 2.1 : 38.0,
-      recommendation: gateB.status === "SAFE"
-        ? "PRIMARY RECOMMENDED EGRESS. Clear of vapor plume and blast envelope. Proceed South-East to Gate B."
-        : "CRITICAL: BLOCKED BY BLAST HAZARD. Use alternate route.",
-      travelTimeSeconds: 120,
-      capacity: "450 Persons/min"
-    },
-    {
-      routeId: "ROUTE-S1",
-      name: `East Shelter Pathway (${shelter.name})`,
-      targetGateId: "SAFE-01",
-      safetyStatus: shelter.status,
-      maxThermalExposureKwM2: shelter.status === "SAFE" ? 1.4 : 14.2,
-      maxOverpressureKPa: shelter.status === "SAFE" ? 3.8 : 26.5,
-      recommendation: shelter.status === "SAFE"
-        ? "SECONDARY SHELTER ROUTE. Positive-pressure haven with CBRN air filtration."
-        : "SHELTER COMPROMISED. Evacuate off-site.",
-      travelTimeSeconds: 85,
-      capacity: "250 Persons/min"
-    },
-    {
-      routeId: "ROUTE-A2",
-      name: `North Corridor (${gateA.name})`,
-      targetGateId: "GATE-A",
-      safetyStatus: gateA.status,
-      maxThermalExposureKwM2: gateA.status === "SAFE" ? 1.1 : 22.8,
-      maxOverpressureKPa: gateA.status === "SAFE" ? 2.6 : 48.5,
-      recommendation: gateA.status === "SAFE"
-        ? "CLEAR ROUTE. Proceed to North Gate A."
-        : `CRITICAL: BLOCKED. Route and Gate A are within ${gateA.distanceM}m of active incident at ${sourceAsset.id}. DO NOT ENTER.`,
-      travelTimeSeconds: 190,
-      capacity: gateA.status === "SAFE" ? "350 Persons/min" : "0 (BLOCKED)"
-    }
-  ];
+  const activeExit = routeOptions.find((route) => route.id === selectedExitId) || recommendedExit;
+  const selectedRoutePath = activeExit?.path || [];
+  const routePolyline = selectedRoutePath.length > 1
+    ? selectedRoutePath.map((nodeId, index) => {
+        const node = getNodeById(nodeId);
+        const x = `${node.x}%`;
+        const y = `${node.y}%`;
+        return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+      }).join(" ")
+    : "";
 
-  const approach = simulationResult?.recommendedApproachDirection || {
-    direction: "SOUTHEAST",
-    headingDegrees: 135,
-    rationale: "Upwind approach angle prevents vapor inhalation and blast debris exposure."
+  const setWorkerLocation = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 5, 95);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 5, 95);
+    const nextNode = { id: "YOU", label: "You", x, y, kind: "worker" };
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => (node.id === "YOU" ? nextNode : node))
+    );
   };
 
-  const [selectedRouteId, setSelectedRouteId] = useState("ALL");
+  const routeTitle = activeExit?.status === "SAFE"
+    ? "Recommended safe evacuation route"
+    : activeExit?.status === "UNSAFE"
+      ? "Path exists but exceeds safety threshold"
+      : "No acceptable route";
+
+  const statusMessage = activeExit?.status === "SAFE"
+    ? `Proceed along the highlighted corridor and exit through ${activeExit.label}. This route stays within the configured safety tolerance.`
+    : activeExit?.status === "UNSAFE"
+      ? "A route exists mathematically, but it is above the acceptable risk threshold. Follow emergency guidance instead of forcing this corridor."
+      : "No acceptable evacuation route is available under the current hazard conditions.";
 
   return (
     <div className="analysis-page">
       <div className="analysis-toolbar">
         <div>
-          <span className="analysis-live">TACTICAL EGRESS SYSTEM</span>
-          <strong>Emergency Evacuation Corridors & Safe Havens</strong>
-        </div>
-
-        <div className="toolbar-actions-right" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <span style={{ fontSize: "10px", color: "var(--muted)" }}>Filter Route:</span>
-          <div className="mode-toggle-group">
-            <button
-              className={`toggle-btn ${selectedRouteId === "ALL" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ALL")}
-            >
-              ALL PATHWAYS
-            </button>
-            <button
-              className={`toggle-btn ${selectedRouteId === "ROUTE-B1" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ROUTE-B1")}
-            >
-              GATE B ({gateB.status})
-            </button>
-            <button
-              className={`toggle-btn ${selectedRouteId === "ROUTE-S1" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ROUTE-S1")}
-            >
-              SHELTER
-            </button>
-            <button
-              className={`toggle-btn ${selectedRouteId === "ROUTE-A2" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ROUTE-A2")}
-            >
-              GATE A ({gateA.status})
-            </button>
-          </div>
+          <span className="analysis-live">EVACUATION PLAN</span>
+          <strong>Graph-based safe evacuation map</strong>
         </div>
       </div>
 
       <div className="evacuation-grid-layout">
-        <div className="panel evacuation-map" style={{ position: "relative", minHeight: "560px", background: "#080c10", overflow: "hidden" }}>
-          <div className="evac-grid" />
-
-          {/* ACTIVE BLAST HAZARD PERIMETER AROUND EPICENTER */}
-          <div
-            className="evac-danger-perimeter"
-            style={{
-              left: `${sourceX}%`,
-              top: `${sourceY}%`,
-              width: "290px",
-              height: "290px",
-            }}
-          >
-            <div className="perimeter-core" />
-            <span className="perimeter-label">⚠️ ACTIVE BLAST HAZARD PERIMETER ({sourceAsset.id})</span>
-          </div>
-
-          {/* SVG VECTOR PATHWAYS */}
-          <svg
-            className="evac-svg-overlay"
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 3 }}
-          >
-            <defs>
-              <linearGradient id="safeRouteGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#32d583" stopOpacity="0.95" />
-                <stop offset="100%" stopColor="#00f0ff" stopOpacity="0.95" />
-              </linearGradient>
-
-              <linearGradient id="blockedRouteGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ff3b30" stopOpacity="0.95" />
-                <stop offset="100%" stopColor="#ff9500" stopOpacity="0.95" />
-              </linearGradient>
-            </defs>
-
-            {/* ROUTE 1: PRIMARY SAFE CORRIDOR (Center -> Gate B in Southeast) */}
-            {(selectedRouteId === "ALL" || selectedRouteId === "ROUTE-B1") && (
-              <g className="route-path-group">
-                <path
-                  d="M 50% 50% Q 68% 65%, 85% 84%"
-                  fill="none"
-                  stroke="url(#safeRouteGrad)"
-                  strokeWidth="3.5"
-                  strokeDasharray="8 5"
-                  className="animated-flow-safe"
-                />
-                <circle cx="85%" cy="84%" r="5" fill="#32d583" />
-                <text x="65%" y="68%" fill="#32d583" fontSize="10" fontWeight="bold">▶ ROUTE B1 (PRIMARY SAFE EGRESS)</text>
-              </g>
-            )}
-
-            {/* ROUTE 2: SAFE SHELTER CORRIDOR (Center -> Shelter Alpha in Northeast) */}
-            {(selectedRouteId === "ALL" || selectedRouteId === "ROUTE-S1") && (
-              <g className="route-path-group">
-                <path
-                  d="M 50% 48% Q 65% 30%, 82% 16%"
-                  fill="none"
-                  stroke="url(#safeRouteGrad)"
-                  strokeWidth="3.5"
-                  strokeDasharray="8 5"
-                  className="animated-flow-safe"
-                />
-                <circle cx="82%" cy="16%" r="5" fill="#32d583" />
-                <text x="66%" y="28%" fill="#32d583" fontSize="10" fontWeight="bold">▶ ROUTE S1 (TO SHELTER)</text>
-              </g>
-            )}
-
-            {/* ROUTE 3: BLOCKED CORRIDOR (Center -> Gate A in North - CUTOFF BY EPICENTER) */}
-            {(selectedRouteId === "ALL" || selectedRouteId === "ROUTE-A2") && (
-              <g className="route-path-group">
-                <path
-                  d="M 45% 48% L 12% 14%"
-                  fill="none"
-                  stroke="url(#blockedRouteGrad)"
-                  strokeWidth="3"
-                  strokeDasharray="6 4"
-                  className="animated-flow-danger"
-                />
-                {/* Hazard Cutoff Cross near Gate A */}
-                <circle cx="24%" cy="25%" r="14" fill="rgba(255, 59, 54, 0.4)" stroke="#ff3b30" strokeWidth="2" />
-                <text x="24%" y="29%" fill="#ff3b30" fontSize="13" fontWeight="bold" textAnchor="middle">✕</text>
-                <text x="28%" y="26%" fill="#ff3b30" fontSize="9" fontWeight="bold">CUTOFF (IN BLAST ZONE)</text>
-              </g>
-            )}
-          </svg>
-
-          {/* FACILITY ASSETS */}
-          {assets.map((asset) => {
-            const isSource = asset.id === sourceId;
-            return (
-              <div
-                key={asset.id}
-                className={`evac-asset-node ${isSource ? "source-epicenter-node" : ""}`}
-                style={{
-                  left: `${asset.x}%`,
-                  top: `${asset.y}%`,
-                }}
-                title={`${asset.id} - ${asset.name}`}
-              >
-                <span className="asset-id-text">{asset.id}</span>
-                {isSource && <span className="epicenter-badge">EPICENTER</span>}
-              </div>
-            );
-          })}
-
-          {/* GATES & ASSEMBLY HAVENS */}
-          {assessedGates.map((g) => (
-            <div
-              key={g.id}
-              className={`evac-gate-card ${g.status === "SAFE" ? "gate-safe" : "gate-danger"}`}
-              style={{
-                left: `${g.x}%`,
-                top: `${g.y}%`,
-              }}
-            >
-              <div className="gate-header">
-                <span className="gate-beacon" />
-                <strong>{g.name}</strong>
-              </div>
-              <small>{g.statusText}</small>
-            </div>
-          ))}
-
+        <div className="panel evacuation-map" style={{ position: "relative", minHeight: "560px", background: "#080c10", overflow: "hidden", cursor: "crosshair" }} onClick={setWorkerLocation}>
           <div className="evac-title-banner">
             <span className="live-dot" />
             <div>
-              <strong>TACTICAL EMERGENCY EVACUATION PATHWAY</strong>
-              <small>GREEN = SAFE CORRIDOR (AWAY FROM PLUME) · RED = BLAST CUTOFF</small>
+              <strong>SAFE ROUTE MAP</strong>
+              <small>Tap to set worker position and the graph recalculates the safest path.</small>
             </div>
+          </div>
+
+          <svg className="evac-svg-overlay" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 3 }}>
+            <defs>
+              <linearGradient id="safeGraphRoute" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#2fe28f" stopOpacity="0.95" />
+                <stop offset="100%" stopColor="#26d6ff" stopOpacity="0.95" />
+              </linearGradient>
+              <linearGradient id="unsafeGraphRoute" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#ff9d3d" stopOpacity="0.92" />
+                <stop offset="100%" stopColor="#ff5f5f" stopOpacity="0.92" />
+              </linearGradient>
+            </defs>
+
+            {edges.map(([from, to], index) => {
+              const start = getNodeById(from);
+              const end = getNodeById(to);
+              const edgeRisk = (getNodeRisk(start) + getNodeRisk(end)) / 2;
+              const strokeColor = edgeRisk > 0.7 ? "#ff5f5f" : "rgba(130, 150, 170, 0.75)";
+              return (
+                <line
+                  key={`${from}-${to}-${index}`}
+                  x1={`${start.x}%`}
+                  y1={`${start.y}%`}
+                  x2={`${end.x}%`}
+                  y2={`${end.y}%`}
+                  stroke={strokeColor}
+                  strokeWidth={selectedRoutePath.includes(from) && selectedRoutePath.includes(to) ? 5 : 3}
+                  strokeDasharray={edgeRisk > 0.7 ? "6 6" : "0"}
+                  opacity={selectedRoutePath.includes(from) && selectedRoutePath.includes(to) ? 1 : 0.8}
+                />
+              );
+            })}
+
+            {routePolyline && (
+              <path
+                d={routePolyline}
+                fill="none"
+                stroke={activeExit?.status === "SAFE" ? "url(#safeGraphRoute)" : "url(#unsafeGraphRoute)"}
+                strokeWidth="5"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                strokeDasharray="10 7"
+                className="animated-flow-safe"
+              />
+            )}
+          </svg>
+
+          <div
+            className="evac-danger-perimeter"
+            style={{
+              left: `${hazardX}%`,
+              top: `${hazardY}%`,
+              width: "230px",
+              height: "230px",
+            }}
+          >
+            <div className="perimeter-core" />
+            <span className="perimeter-label">⚠ HAZARD</span>
+          </div>
+
+          {nodes.map((node) => (
+            <div
+              key={node.id}
+              className={`evac-asset-node ${node.kind === "exit" ? "source-epicenter-node" : node.kind === "worker" ? "worker-node" : ""}`}
+              style={{
+                left: `${node.x}%`,
+                top: `${node.y}%`,
+                background: node.kind === "worker" ? "#0d1f3a" : node.kind === "exit" ? "#112a1a" : "#111720",
+                borderColor: node.kind === "worker" ? "#4da3ff" : node.kind === "exit" ? "#39d98a" : "#788aa6",
+                color: node.kind === "worker" ? "#dfeeff" : "#ffffff",
+                boxShadow: node.kind === "worker" ? "0 0 12px rgba(77,163,255,0.45)" : "0 0 8px rgba(65, 120, 180, 0.2)",
+              }}
+              title={node.label}
+            >
+              <span className="asset-id-text">{node.kind === "worker" ? "YOU" : node.label.slice(0, 4).toUpperCase()}</span>
+            </div>
+          ))}
+
+          <div style={{ position: "absolute", left: "14px", bottom: "14px", zIndex: 12, background: "rgba(8,12,16,0.82)", border: "1px solid var(--line-strong)", padding: "10px 12px", borderRadius: "6px" }}>
+            <div style={{ fontSize: "9px", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", marginBottom: "4px" }}>Routing model</div>
+            <div style={{ fontWeight: 700, fontSize: "13px" }}>Graph-based evacuation corridor</div>
           </div>
         </div>
 
         <div className="panel evac-routes-panel">
-          <PanelHeading title="Corridor Assessment & Directives" eyebrow="TACTICAL EGRESS MATRIX" />
+          <PanelHeading title="Safe exit options" eyebrow="ROUTE CLASSIFICATION" />
 
-          {/* EVACUATION QUICK METRICS */}
           <div className="evac-kpi-grid">
             <div className="evac-kpi-card">
-              <span>Primary Safe Exit</span>
-              <strong style={{ color: "#32d583" }}>{gateB.status === "SAFE" ? "GATE B (SOUTHEAST)" : "GATE A"}</strong>
+              <span>Recommended exit</span>
+              <strong>{recommendedExit?.label || "No route"}</strong>
             </div>
             <div className="evac-kpi-card">
-              <span>Plant Clearing Time</span>
-              <strong>~ 2.0 min (120s)</strong>
+              <span>Distance</span>
+              <strong>{recommendedExit?.cost ? `${Math.round(recommendedExit.cost)}m` : "—"}</strong>
             </div>
             <div className="evac-kpi-card">
-              <span>Egress Capacity</span>
-              <strong>450 Pers / min</strong>
+              <span>Estimated time</span>
+              <strong>{recommendedExit?.time ? `${Math.round(recommendedExit.time / 60)}:${String(recommendedExit.time % 60).padStart(2, "0")}` : "—"}</strong>
             </div>
             <div className="evac-kpi-card">
-              <span>Path Exposure</span>
-              <strong style={{ color: "#32d583" }}>SAFE (&lt; 2.1 kPa)</strong>
+              <span>Risk</span>
+              <strong>{recommendedExit ? recommendedExit.status : "NO_PATH"}</strong>
             </div>
           </div>
 
-          <div className="routes-list" style={{ marginTop: "12px" }}>
-            {routes.map((r) => {
-              const isSelected = selectedRouteId === r.routeId || selectedRouteId === "ALL";
+          <div style={{ marginTop: "16px", padding: "14px", border: "1px solid var(--line)", borderRadius: "6px", background: "var(--panel-2)" }}>
+            <div style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted)", marginBottom: "6px" }}>Route status</div>
+            <div style={{ fontSize: "18px", fontWeight: 700, color: activeExit?.status === "SAFE" ? "#3ae38a" : activeExit?.status === "UNSAFE" ? "#ff8a3d" : "#ff5d5d" }}>
+              {routeTitle}
+            </div>
+            <p style={{ margin: "10px 0 0", color: "var(--text-2)", lineHeight: 1.5 }}>{statusMessage}</p>
+          </div>
+
+          <div className="routes-list" style={{ marginTop: "16px" }}>
+            {routeOptions.map((route) => {
+              const isSelected = route.id === activeExit?.id;
               return (
                 <div
-                  key={r.routeId}
-                  className={`route-card ${r.safetyStatus === "SAFE" ? "route-safe" : "route-danger"} ${selectedRouteId === r.routeId ? "selected-route-card" : ""}`}
-                  onClick={() => setSelectedRouteId(r.routeId)}
-                  style={{ cursor: "pointer", opacity: isSelected ? 1 : 0.6 }}
+                  key={route.id}
+                  className={`route-card ${route.status === "SAFE" ? "route-safe" : "route-danger"} ${isSelected ? "selected-route-card" : ""}`}
+                  onClick={() => setSelectedExitId(route.id)}
+                  style={{ cursor: "pointer" }}
                 >
                   <div className="route-header">
                     <div>
-                      <span className="route-id-tag">{r.routeId}</span>
-                      <strong>{r.name}</strong>
+                      <span className="route-id-tag">{route.id}</span>
+                      <strong>{route.label}</strong>
                     </div>
-                    <span className={`badge-status ${r.safetyStatus === "SAFE" ? "safe" : "danger"}`}>
-                      {r.safetyStatus}
+                    <span className={`badge-status ${route.status === "SAFE" ? "safe" : "danger"}`}>
+                      {route.status}
                     </span>
                   </div>
 
                   <div className="route-metrics">
-                    <span>Max Heat: <b>{r.maxThermalExposureKwM2} kW/m²</b></span>
-                    <span>Max Overpressure: <b>{r.maxOverpressureKPa} kPa</b></span>
-                    <span>Est. Time: <b>{r.travelTimeSeconds || 120}s</b></span>
+                    <span>Distance: <b>{route.path ? `${Math.round(route.cost)} m` : "—"}</b></span>
+                    <span>Route risk: <b>{route.path ? route.risk.toFixed(2) : "—"}</b></span>
                   </div>
-                  <p className="route-rec">{r.recommendation}</p>
+                  <p className="route-rec">
+                    {route.status === "SAFE"
+                      ? `Safe corridor available. Recommended path remains within safety thresholds.`
+                      : route.status === "UNSAFE"
+                        ? `The corridor exists, but the current hazard profile exceeds the acceptable safety threshold.`
+                        : `No acceptable path exists to this exit from the current worker position.`}
+                  </p>
                 </div>
               );
             })}
-          </div>
-
-          <div className="approach-card" style={{ marginTop: "12px" }}>
-            <span className="card-kicker">FIRST RESPONDER TACTICAL ACCESS</span>
-            <strong>Recommended Incident Approach: {approach.direction} ({approach.headingDegrees}°)</strong>
-            <p>{approach.rationale}</p>
           </div>
         </div>
       </div>

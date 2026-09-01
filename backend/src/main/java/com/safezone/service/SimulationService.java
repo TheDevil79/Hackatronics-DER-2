@@ -61,6 +61,15 @@ public class SimulationService {
                 .orElseThrow(() -> new SimulationNotFoundException(simulationId, true));
     }
 
+    /**
+     * Retrieves all stored simulation results.
+     *
+     * @return list of all simulation responses currently stored in repository
+     */
+    public List<SimulationResponseDto> getAllSimulations() {
+        return simulationRepository.findAll();
+    }
+
     private SimulationRequestDto validateAndNormalizeRequest(SimulationRequestDto request) {
         if (request == null) {
             throw new InvalidSimulationRequestException("Simulation request payload must not be null");

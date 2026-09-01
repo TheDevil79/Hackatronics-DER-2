@@ -1,6 +1,8 @@
 package com.safezone.controller;
 
 import com.jayway.jsonpath.JsonPath;
+import com.safezone.repository.SimulationRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,14 @@ class SimulationControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private SimulationRepository simulationRepository;
+
+    @BeforeEach
+    void setUp() {
+        simulationRepository.clear();
+    }
 
     private static final String TWO_TANK_REQUEST_JSON = """
             {
@@ -157,6 +167,52 @@ class SimulationControllerTest {
               }
             }
             """;
+
+    @Test
+    @DisplayName("GET /api/simulations returns empty list when no simulations are stored")
+    void testGetAllSimulationsEmptyList() throws Exception {
+        mockMvc.perform(get("/api/simulations")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /api/simulations returns list with one stored simulation after creation")
+    void testGetAllSimulationsOneStored() throws Exception {
+        mockMvc.perform(post("/api/simulations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(TWO_TANK_REQUEST_JSON))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/simulations")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].requestId").value("req-safezone-demo-001"))
+                .andExpect(jsonPath("$[0].overallSeverity").value("CRITICAL"))
+                .andExpect(jsonPath("$[0].overallRiskScore").value(84.5));
+    }
+
+    @Test
+    @DisplayName("GET /api/simulations returns all stored simulations when multiple exist")
+    void testGetAllSimulationsMultipleStored() throws Exception {
+        String req1 = TWO_TANK_REQUEST_JSON.replace("req-safezone-demo-001", "req-batch-001");
+        String req2 = TWO_TANK_REQUEST_JSON.replace("req-safezone-demo-001", "req-batch-002");
+        String req3 = TWO_TANK_REQUEST_JSON.replace("req-safezone-demo-001", "req-batch-003");
+
+        mockMvc.perform(post("/api/simulations").contentType(MediaType.APPLICATION_JSON).content(req1)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/simulations").contentType(MediaType.APPLICATION_JSON).content(req2)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/simulations").contentType(MediaType.APPLICATION_JSON).content(req3)).andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/simulations")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(3)));
+    }
 
     @Test
     @DisplayName("POST /api/simulations creates and stores a simulation, returning 200 OK")

@@ -277,4 +277,20 @@ class SimulationServiceTest {
         assertThrows(SimulationNotFoundException.class, () -> simulationService.getSimulation(null));
         assertThrows(SimulationNotFoundException.class, () -> simulationService.getSimulation("   "));
     }
+
+    @Test
+    @DisplayName("getAllSimulations returns all simulation responses from repository")
+    void testGetAllSimulationsReturnsList() {
+        SimulationResponseDto sim1 = new SimulationResponseDto("sim-1", "req-1", "2026-09-01T12:00:00Z", 100.0, "LOW", 10.0, "Summary 1", List.of(), List.of(), List.of(), List.of(), null);
+        SimulationResponseDto sim2 = new SimulationResponseDto("sim-2", "req-2", "2026-09-01T12:00:00Z", 110.0, "HIGH", 70.0, "Summary 2", List.of(), List.of(), List.of(), List.of(), null);
+
+        when(simulationRepository.findAll()).thenReturn(List.of(sim1, sim2));
+
+        List<SimulationResponseDto> results = simulationService.getAllSimulations();
+        assertNotNull(results);
+        assertEquals(2, results.size());
+        assertEquals("sim-1", results.get(0).simulationId());
+        assertEquals("sim-2", results.get(1).simulationId());
+        verify(simulationRepository).findAll();
+    }
 }

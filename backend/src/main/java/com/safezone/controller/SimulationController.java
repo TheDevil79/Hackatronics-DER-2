@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/simulations")
 public class SimulationController {
@@ -33,6 +35,17 @@ public class SimulationController {
     public ResponseEntity<SimulationResponseDto> runSimulation(@Valid @RequestBody SimulationRequestDto request) {
         SimulationResponseDto response = simulationService.runSimulation(request);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Retrieves all stored simulation results.
+     *
+     * @return list of all simulation responses
+     */
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<List<SimulationResponseDto>> getAllSimulations() {
+        List<SimulationResponseDto> simulations = simulationService.getAllSimulations();
+        return ResponseEntity.ok(simulations);
     }
 
     /**

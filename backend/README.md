@@ -76,7 +76,12 @@ The server will start locally at **`http://localhost:8080`**.
 - **Request Body**: `SimulationRequestDto`
 - **Response**: `200 OK` + `SimulationResponseDto` (or `400 Bad Request` on validation failure)
 
-### 3. Get Simulation Result
+### 3. List All Simulations
+- **Method**: `GET`
+- **Path**: `/api/simulations`
+- **Response**: `200 OK` + `List<SimulationResponseDto>`
+
+### 4. Get Simulation Result by ID
 - **Method**: `GET`
 - **Path**: `/api/simulations/{simulationId}`
 - **Response**: `200 OK` + `SimulationResponseDto` (or `404 Not Found` if ID does not exist)

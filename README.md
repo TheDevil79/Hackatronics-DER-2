@@ -64,12 +64,24 @@ python run.py
 ```
 
 ### 2. Core Backend (Spring Boot)
+> **Note**: If `gradle-wrapper.jar` is missing, you can either use your globally installed `gradle` or download the wrapper jar file once.
+
 ```bash
 cd backend
-# On Windows:
+
+# Option A: Using globally installed Gradle
+gradle bootRun
+
+# Option B: Using Gradle Wrapper (download wrapper JAR if missing first)
+# Download wrapper jar:
+curl -L -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar
+
+# Run on Windows (PowerShell / Command Prompt):
 .\gradlew.bat bootRun
-# On Linux/macOS:
+
+# Run on Linux / macOS / Git Bash:
 ./gradlew bootRun
+
 # Running on: http://localhost:8080
 ```
 

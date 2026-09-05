@@ -4,6 +4,9 @@ import "./App.css";
 import GeoMap from "./components/GeoMap";
 import FacilityMap from "./components/FacilityMap";
 import EnvironmentPanel from "./components/EnvironmentPanel";
+import DominoVisualizer from "./components/DominoVisualizer";
+import GraphEvacuationMap from "./components/GraphEvacuationMap";
+import AlertCenterModal from "./components/AlertCenterModal";
 import { SafeZoneApi } from "./services/api";
 import {
   INITIAL_FACILITY_ASSETS,
@@ -133,6 +136,7 @@ function App() {
   const [simulationHistory, setSimulationHistory] = useState([MOCK_SIMULATION_RESULT]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -242,10 +246,15 @@ function App() {
     setIsSimulating(true);
     showToast("Executing physics simulation...");
 
+    const targetSourceId = simParams.sourceAssetId || selectedId || "T-101";
+    const srcAsset = assets.find((a) => a.id === targetSourceId) || assets[0];
+    const sourcePosition = { x: Number(srcAsset?.x ?? 22), y: Number(srcAsset?.y ?? 28) };
+
     try {
       const payload = {
         requestId: `req-${Date.now()}`,
-        sourceAssetId: simParams.sourceAssetId || selectedId || "T-101",
+        sourceAssetId: targetSourceId,
+        sourcePosition: sourcePosition,
         energyJ: Number(simParams.energyJ) || 2.5e9,
         durationSeconds: Number(simParams.durationSeconds) || 1.5,
         windSpeedKmh: Number(windSpeed) * 3.6,
@@ -317,6 +326,7 @@ function App() {
             setSearch={setSearch}
             simulationResult={simulationResult}
             setPage={setPage}
+            onOpenAlerts={() => setIsAlertsOpen(true)}
           />
 
           {page === "dashboard" && (
@@ -333,6 +343,7 @@ function App() {
               setAmbientPressure={setAmbientPressure}
               simulationResult={simulationResult}
               backendStatus={backendStatus}
+              onOpenAlerts={() => setIsAlertsOpen(true)}
             />
           )}
 
@@ -390,6 +401,8 @@ function App() {
               assets={assets}
               simulationResult={simulationResult}
               onSimulate={handleRunSimulation}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
             />
           )}
 
@@ -429,6 +442,15 @@ function App() {
       />
 
       {toast && <Toast message={toast} />}
+
+      <AlertCenterModal
+        isOpen={isAlertsOpen}
+        onClose={() => setIsAlertsOpen(false)}
+        simulationResult={simulationResult}
+        assets={assets}
+        setPage={setPage}
+        setSelectedId={setSelectedId}
+      />
     </div>
   );
 }
@@ -600,7 +622,7 @@ function Sidebar({ page, setPage, open }) {
    PAGE HEADER
    ========================================================= */
 
-function PageHeader({ page, search, setSearch, simulationResult, setPage }) {
+function PageHeader({ page, search, setSearch, simulationResult, setPage, onOpenAlerts }) {
   const data = PAGE_DATA[page] || { title: page, subtitle: "" };
   const sourceId = simulationResult?.parameters?.sourceAssetId || "T-101";
 
@@ -621,8 +643,8 @@ function PageHeader({ page, search, setSearch, simulationResult, setPage }) {
         {simulationResult && (
           <div
             className="active-sim-chip"
-            onClick={() => setPage("simulation")}
-            title="Click to view loaded simulation in Simulation Center"
+            onClick={onOpenAlerts}
+            title="Active Emergency Incident Alert - Click to inspect safety directives"
           >
             <span className="chip-dot" />
             <div className="chip-text">
@@ -633,7 +655,16 @@ function PageHeader({ page, search, setSearch, simulationResult, setPage }) {
                 Epicenter: <b>{sourceId}</b> · Peak: <b>{simulationResult.blastMetrics?.peakOverpressureKPa || 320} kPa</b> · Radius: <b>{simulationResult.blastMetrics?.finalRadiusMeters || 92}m</b>
               </small>
             </div>
-            <span className="chip-arrow">VIEW SIMULATION →</span>
+            <span
+              className="chip-arrow"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPage("simulation");
+              }}
+              title="Click to jump directly to Simulation Center"
+            >
+              VIEW SIMULATION →
+            </span>
           </div>
         )}
 
@@ -647,8 +678,13 @@ function PageHeader({ page, search, setSearch, simulationResult, setPage }) {
           <kbd>⌘ K</kbd>
         </div>
 
-        <button className="notification" title="Alerts">
-          <span />
+        <button
+          className="notification"
+          title="Active Safety & Incident Alarms (Click to Inspect)"
+          onClick={onOpenAlerts}
+          style={{ cursor: "pointer", position: "relative" }}
+        >
+          <span className="alert-beacon-dot" />
           ◇
         </button>
       </div>
@@ -672,7 +708,8 @@ function Dashboard({
   ambientPressure,
   setAmbientPressure,
   simulationResult,
-  backendStatus
+  backendStatus,
+  onOpenAlerts
 }) {
   const tanks = assets.filter((asset) => asset.type === "tank" || asset.type === "fuel-storage" || asset.type === "fire-water-tank").length;
   const criticalAssets = assets.filter((a) => a.riskLevel === "Critical" || a.status === "Critical").length;
@@ -683,12 +720,14 @@ function Dashboard({
       value: assets.length,
       detail: "Registered in Zone 01",
       icon: "◇",
+      onClick: () => setPage("map")
     },
     {
       label: "STORAGE VESSELS",
       value: tanks,
       detail: "High-energy tanks & spheres",
       icon: "◎",
+      onClick: () => setPage("map")
     },
     {
       label: "SYSTEM HEALTH",
@@ -699,10 +738,11 @@ function Dashboard({
     },
     {
       label: "ACTIVE ALERTS",
-      value: criticalAssets > 0 ? `0${criticalAssets + 1}` : "02",
-      detail: "Requires risk attention",
+      value: criticalAssets > 0 ? `0${criticalAssets + 1}` : "03",
+      detail: "Requires risk attention (Click to inspect)",
       icon: "!",
       danger: true,
+      onClick: onOpenAlerts
     },
   ];
 
@@ -713,7 +753,8 @@ function Dashboard({
           <div
             className={`metric-card ${card.danger ? "danger" : ""}`}
             key={card.label}
-            style={{ animationDelay: `${index * 70}ms` }}
+            style={{ animationDelay: `${index * 70}ms`, cursor: card.onClick ? "pointer" : "default" }}
+            onClick={card.onClick}
           >
             <div className="metric-top">
               <span>{card.label}</span>
@@ -790,8 +831,8 @@ function Dashboard({
           <PanelHeading
             title="Risk Events"
             eyebrow="LIVE MONITORING"
-            action="INSPECT"
-            onAction={() => setPage("simulation")}
+            action="OPEN ALERTS"
+            onAction={onOpenAlerts}
           />
 
           <div className="event">
@@ -1119,10 +1160,14 @@ function HeatMap({
                     className={`affected-item-mini clickable ${a.id === inspectedAsset.id ? "active-row" : ""}`}
                     onClick={() => setSelectedId?.(a.id)}
                   >
-                    <span><strong>{a.id}</strong> {a.name}</span>
-                    <b className={exp.level === "critical" ? "danger-text" : exp.level === "high" ? "warning-text" : ""}>
+                    <div className="affected-asset-info">
+                      <strong className="affected-id">{a.id}</strong>
+                      <span className="affected-sep">-</span>
+                      <span className="affected-name">{a.name}</span>
+                    </div>
+                    <span className={`affected-kpa-pill level-${exp.level}`}>
                       {exp.overpressureKPa.toFixed(0)} kPa
-                    </b>
+                    </span>
                   </div>
                 );
               })}
@@ -1155,8 +1200,24 @@ function Simulation({
   const [sourceAssetId, setSourceAssetId] = useState(
     simulationResult?.parameters?.sourceAssetId || "T-101"
   );
-  const [energyExp, setEnergyExp] = useState("2.5");
-  const [durationSeconds, setDurationSeconds] = useState("1.5");
+  const [energyExp, setEnergyExp] = useState(
+    simulationResult?.parameters?.energyJ ? (simulationResult.parameters.energyJ / 1e9).toFixed(1) : "2.5"
+  );
+  const [durationSeconds, setDurationSeconds] = useState(
+    simulationResult?.parameters?.durationSeconds ? String(simulationResult.parameters.durationSeconds) : "1.5"
+  );
+
+  useEffect(() => {
+    if (simulationResult?.parameters?.sourceAssetId) {
+      setSourceAssetId(simulationResult.parameters.sourceAssetId);
+    }
+    if (simulationResult?.parameters?.energyJ) {
+      setEnergyExp((simulationResult.parameters.energyJ / 1e9).toFixed(1));
+    }
+    if (simulationResult?.parameters?.durationSeconds) {
+      setDurationSeconds(String(simulationResult.parameters.durationSeconds));
+    }
+  }, [simulationResult]);
 
   const handleSimulate = (e) => {
     e?.preventDefault();
@@ -1515,22 +1576,147 @@ function SimulationCard({
    7. DOMINO EFFECT
    ========================================================= */
 
-function DominoAnalysis({ assets, simulationResult, onSimulate }) {
-  const steps = simulationResult?.dominoPropagation || [];
-  const sourceId = simulationResult?.parameters?.sourceAssetId || "T-101";
-  const sourceAsset = assets.find((a) => a.id === sourceId) || { id: sourceId, name: "Primary Incident Epicenter", fuel: "LPG", capacity: 500 };
+function DominoAnalysis({ assets, simulationResult, onSimulate, selectedId, setSelectedId }) {
+  const selectableTanks = useMemo(() => {
+    const list = assets.filter(
+      (a) =>
+        a.type === "tank" ||
+        a.type === "fuel-storage" ||
+        a.type === "gas-storage" ||
+        a.type === "reactor" ||
+        a.type === "boiler" ||
+        a.type === "pressure-vessel"
+    );
+    return list.length > 0 ? list : assets.slice(0, 6);
+  }, [assets]);
+
+  const [chosenSourceId, setChosenSourceId] = useState(null);
+  const activeSourceId = chosenSourceId || simulationResult?.parameters?.sourceAssetId || selectedId || "T-101";
+  const sourceAsset = assets.find((a) => a.id === activeSourceId) || { id: activeSourceId, name: "Primary Incident Epicenter", fuel: "LPG", capacity: 500, x: 22, y: 28 };
+
+  const steps = useMemo(() => {
+    if (simulationResult?.parameters?.sourceAssetId === activeSourceId && simulationResult?.dominoPropagation?.length > 0) {
+      return simulationResult.dominoPropagation;
+    }
+
+    const otherAssets = assets.filter((a) => a.id !== activeSourceId);
+    const sorted = [...otherAssets].sort((a, b) => {
+      const da = Math.hypot(Number(a.x || 0) - Number(sourceAsset.x || 0), Number(a.y || 0) - Number(sourceAsset.y || 0));
+      const db = Math.hypot(Number(b.x || 0) - Number(sourceAsset.x || 0), Number(b.y || 0) - Number(sourceAsset.y || 0));
+      return da - db;
+    }).slice(0, 3);
+
+    const mechanisms = [
+      { mech: "OVERPRESSURE_SHEAR", delay: 12, prob: 0.95, desc: "Blast wave snaps header flange, releasing pressurized vapor." },
+      { mech: "THERMAL_RADIATION_RUPTURE", delay: 165, prob: 0.72, desc: "Thermal radiation heats unwetted shell plates leading to secondary BLEVE." },
+      { mech: "JET_FIRE_IMPINGEMENT", delay: 240, prob: 0.58, desc: "High-temperature jet flame direct impingement compromises pump seal and motor block." }
+    ];
+
+    let prevId = activeSourceId;
+    return sorted.map((target, idx) => {
+      const m = mechanisms[idx] || mechanisms[0];
+      const step = {
+        stepOrder: idx + 1,
+        triggerAssetId: prevId,
+        targetAssetId: target.id,
+        mechanism: m.mech,
+        escalationProbabilityEstimate: m.prob,
+        estimatedDelaySeconds: m.delay,
+        riskContribution: `${target.name || target.id}: ${m.desc}`
+      };
+      prevId = target.id;
+      return step;
+    });
+  }, [activeSourceId, simulationResult, assets, sourceAsset]);
+
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(2);
+
+  const handleTankChange = (newId) => {
+    setChosenSourceId(newId);
+    setSelectedId?.(newId);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    onSimulate?.({ sourceAssetId: newId });
+  };
 
   return (
     <div className="analysis-page">
-      <div className="analysis-toolbar">
+      <div className="analysis-toolbar domino-toolbar-custom">
         <div>
           <span className="analysis-live">CASCADE ESCALATION ENGINE</span>
           <strong>Domino Propagation Pathways & Secondary Rupture Risk</strong>
         </div>
-        <button className="primary-action-btn" onClick={() => onSimulate?.()}>
-          RECOMPUTE ESCALATION ⟳
-        </button>
+
+        {/* EPICENTER TANK SELECTOR & QUICK CHIPS */}
+        <div className="domino-epicenter-selector-wrap">
+          <label className="epicenter-label">
+            <span>💥 INCIDENT EPICENTER:</span>
+            <select
+              value={activeSourceId}
+              onChange={(e) => handleTankChange(e.target.value)}
+              className="domino-tank-select"
+            >
+              {selectableTanks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.id} - {t.name} ({t.fuel || t.type})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="quick-tank-pills">
+            {selectableTanks.slice(0, 4).map((t) => (
+              <button
+                key={t.id}
+                className={`quick-tank-chip ${activeSourceId === t.id ? "active" : ""}`}
+                onClick={() => handleTankChange(t.id)}
+                title={`Simulate domino cascade starting at ${t.id} (${t.name})`}
+              >
+                {t.id}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <button
+            className="secondary-btn"
+            style={{ padding: "6px 12px", fontSize: "11px" }}
+            onClick={() => {
+              setCurrentTime(0);
+              setIsPlaying(true);
+            }}
+          >
+            ▶ ANIMATE PROPAGATION
+          </button>
+          <button
+            className="primary-action-btn"
+            onClick={() => onSimulate?.({ sourceAssetId: activeSourceId })}
+          >
+            RECOMPUTE ESCALATION ⟳
+          </button>
+        </div>
       </div>
+
+      {/* INTERACTIVE 2D PROPAGATION ANIMATOR & TIMELINE SCRUBBER */}
+      <DominoVisualizer
+        assets={assets}
+        steps={steps}
+        sourceAsset={sourceAsset}
+        currentTime={currentTime}
+        setCurrentTime={setCurrentTime}
+        isPlaying={isPlaying}
+        setIsPlaying={setIsPlaying}
+        playbackSpeed={playbackSpeed}
+        setPlaybackSpeed={setPlaybackSpeed}
+        onReset={() => {
+          setCurrentTime(0);
+          setIsPlaying(false);
+        }}
+        onSelectEpicenter={handleTankChange}
+      />
 
       <div className="analysis-grid-two">
         <div className="panel domino-network-panel">
@@ -1541,7 +1727,15 @@ function DominoAnalysis({ assets, simulationResult, onSimulate }) {
 
           <div className="domino-chain-wrapper">
             {/* Primary Source Card */}
-            <div className="domino-node-card source-card">
+            <div
+              className={`domino-node-card source-card ${currentTime >= 0 ? "breached-rupture" : ""}`}
+              onClick={() => {
+                setCurrentTime(0);
+                setIsPlaying(false);
+              }}
+              style={{ cursor: "pointer" }}
+              title="Click to seek timeline to T+0s"
+            >
               <div className="domino-card-top">
                 <span className="domino-phase-badge source-badge">PRIMARY EPICENTER · T+0s</span>
                 <span className="domino-status-pill danger">RUPTURE / BLEVE</span>
@@ -1554,33 +1748,60 @@ function DominoAnalysis({ assets, simulationResult, onSimulate }) {
             </div>
 
             {/* Escalation Sequence */}
-            {steps.map((step, idx) => (
-              <div key={step.stepOrder || idx} className="domino-step-block">
-                <div className="domino-connector-bar">
-                  <div className="connector-pulse-line" />
-                  <div className="connector-badge">
-                    <span className="connector-mech">{step.mechanism ? step.mechanism.replace(/_/g, ' ') : "THERMAL OVERPRESSURE"}</span>
-                    <span className="connector-stats">
-                      <strong>Δt {step.estimatedDelaySeconds}s</strong> · {(step.escalationProbabilityEstimate * 100).toFixed(0)}% Probability
-                    </span>
-                  </div>
-                  <div className="connector-arrow-head">▼</div>
-                </div>
+            {steps.map((step, idx) => {
+              const prevStep = steps[idx - 1];
+              const prevDelay = prevStep ? Number(prevStep.estimatedDelaySeconds) || 0 : 0;
+              const delay = Number(step.estimatedDelaySeconds) || 0;
 
-                <div className="domino-node-card target-card">
-                  <div className="domino-card-top">
-                    <span className="domino-phase-badge step-badge">STEP {step.stepOrder}: SECONDARY RECEPTOR</span>
-                    <span className="domino-prob-pill">
-                      {(step.escalationProbabilityEstimate * 100).toFixed(0)}% ESCALATION RISK
-                    </span>
+              const isRuptured = currentTime >= delay;
+              const isImpinging = !isRuptured && currentTime >= prevDelay;
+
+              const hopSpan = Math.max(delay - prevDelay, 0.1);
+              const progressPct = Math.max(0, Math.min(100, Math.round(((currentTime - prevDelay) / hopSpan) * 100)));
+
+              return (
+                <div key={step.stepOrder || idx} className="domino-step-block">
+                  <div className="domino-connector-bar">
+                    <div className="connector-bar-progress">
+                      <div className="connector-bar-fill" style={{ height: `${progressPct}%` }} />
+                    </div>
+                    <div className="connector-badge">
+                      <span className="connector-mech">{step.mechanism ? step.mechanism.replace(/_/g, " ") : "THERMAL OVERPRESSURE"}</span>
+                      <span className="connector-stats">
+                        <strong>Δt {step.estimatedDelaySeconds}s</strong> · {(step.escalationProbabilityEstimate * 100).toFixed(0)}% Probability
+                        {isImpinging && <span style={{ color: "#ff9f1c", marginLeft: "6px" }}>⚡ {progressPct}%</span>}
+                      </span>
+                    </div>
+                    <div className="connector-arrow-head" style={{ color: isRuptured ? "#ff3b30" : isImpinging ? "#ff9f1c" : "var(--muted)" }}>▼</div>
                   </div>
-                  <div className="domino-card-body">
-                    <div className="domino-asset-id">{step.targetAssetId}</div>
-                    <div className="domino-step-reason">{step.riskContribution}</div>
+
+                  <div
+                    className={`domino-node-card target-card ${isRuptured ? "breached-rupture" : isImpinging ? "active-impingement" : ""}`}
+                    onClick={() => {
+                      setCurrentTime(delay);
+                      setIsPlaying(false);
+                    }}
+                    style={{ cursor: "pointer" }}
+                    title={`Click to seek timeline to T+${step.estimatedDelaySeconds}s`}
+                  >
+                    <div className="domino-card-top">
+                      <span className="domino-phase-badge step-badge">STEP {step.stepOrder}: SECONDARY RECEPTOR</span>
+                      <span className={isRuptured ? "domino-status-pill danger" : isImpinging ? "domino-prob-pill" : "badge-state"}>
+                        {isRuptured
+                          ? `💥 BREACHED AT T+${step.estimatedDelaySeconds}s`
+                          : isImpinging
+                          ? `⚡ IMPINGING (${Math.max(0, Math.round(delay - currentTime))}s LEFT)`
+                          : `${(step.escalationProbabilityEstimate * 100).toFixed(0)}% RISK QUEUED`}
+                      </span>
+                    </div>
+                    <div className="domino-card-body">
+                      <div className="domino-asset-id">{step.targetAssetId}</div>
+                      <div className="domino-step-reason">{step.riskContribution}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -2284,314 +2505,9 @@ function BlastAnalysis({
    ========================================================= */
 
 function Evacuation({ assets, simulationResult }) {
-  const sourceId = simulationResult?.parameters?.sourceAssetId || "T-101";
-  const sourceAsset = assets.find((a) => a.id === sourceId) || assets[0] || { x: 24, y: 28 };
-  const sourceX = sourceAsset.x || 24;
-  const sourceY = sourceAsset.y || 28;
-
-  // Dynamic gate & exit vulnerability based on distance to epicenter
-  const assessedGates = [
-    { id: "GATE-A", name: "GATE A (NORTH MAIN)", x: 12, y: 14, type: "gate" },
-    { id: "SAFE-01", name: "SAFE HAVEN ALPHA (SHELTER)", x: 82, y: 16, type: "shelter" },
-    { id: "EXIT-02", name: "EMERGENCY EXIT 02 (WEST)", x: 8, y: 62, type: "exit" },
-    { id: "GATE-B", name: "GATE B (SOUTHEAST MAIN)", x: 85, y: 84, type: "gate" },
-  ].map((g) => {
-    const dist = Math.hypot(g.x - sourceX, g.y - sourceY);
-    const isCompromised = dist < 32; // within ~32% visual danger envelope
-    return {
-      ...g,
-      status: isCompromised ? "DANGER" : "SAFE",
-      statusText: isCompromised ? "⛔ COMPROMISED - IN BLAST RADIUS" : "✓ CLEAR & SAFE (RECOMMENDED)",
-      distanceM: Math.round(dist * 4.8)
-    };
-  });
-
-  const gateA = assessedGates.find((g) => g.id === "GATE-A");
-  const gateB = assessedGates.find((g) => g.id === "GATE-B");
-  const shelter = assessedGates.find((g) => g.id === "SAFE-01");
-
-  const routes = [
-    {
-      routeId: "ROUTE-B1",
-      name: `Southeast Main Corridor (${gateB.name})`,
-      targetGateId: "GATE-B",
-      safetyStatus: gateB.status,
-      maxThermalExposureKwM2: gateB.status === "SAFE" ? 0.9 : 19.4,
-      maxOverpressureKPa: gateB.status === "SAFE" ? 2.1 : 38.0,
-      recommendation: gateB.status === "SAFE"
-        ? "PRIMARY RECOMMENDED EGRESS. Clear of vapor plume and blast envelope. Proceed South-East to Gate B."
-        : "CRITICAL: BLOCKED BY BLAST HAZARD. Use alternate route.",
-      travelTimeSeconds: 120,
-      capacity: "450 Persons/min"
-    },
-    {
-      routeId: "ROUTE-S1",
-      name: `East Shelter Pathway (${shelter.name})`,
-      targetGateId: "SAFE-01",
-      safetyStatus: shelter.status,
-      maxThermalExposureKwM2: shelter.status === "SAFE" ? 1.4 : 14.2,
-      maxOverpressureKPa: shelter.status === "SAFE" ? 3.8 : 26.5,
-      recommendation: shelter.status === "SAFE"
-        ? "SECONDARY SHELTER ROUTE. Positive-pressure haven with CBRN air filtration."
-        : "SHELTER COMPROMISED. Evacuate off-site.",
-      travelTimeSeconds: 85,
-      capacity: "250 Persons/min"
-    },
-    {
-      routeId: "ROUTE-A2",
-      name: `North Corridor (${gateA.name})`,
-      targetGateId: "GATE-A",
-      safetyStatus: gateA.status,
-      maxThermalExposureKwM2: gateA.status === "SAFE" ? 1.1 : 22.8,
-      maxOverpressureKPa: gateA.status === "SAFE" ? 2.6 : 48.5,
-      recommendation: gateA.status === "SAFE"
-        ? "CLEAR ROUTE. Proceed to North Gate A."
-        : `CRITICAL: BLOCKED. Route and Gate A are within ${gateA.distanceM}m of active incident at ${sourceAsset.id}. DO NOT ENTER.`,
-      travelTimeSeconds: 190,
-      capacity: gateA.status === "SAFE" ? "350 Persons/min" : "0 (BLOCKED)"
-    }
-  ];
-
-  const approach = simulationResult?.recommendedApproachDirection || {
-    direction: "SOUTHEAST",
-    headingDegrees: 135,
-    rationale: "Upwind approach angle prevents vapor inhalation and blast debris exposure."
-  };
-
-  const [selectedRouteId, setSelectedRouteId] = useState("ALL");
-
   return (
     <div className="analysis-page">
-      <div className="analysis-toolbar">
-        <div>
-          <span className="analysis-live">TACTICAL EGRESS SYSTEM</span>
-          <strong>Emergency Evacuation Corridors & Safe Havens</strong>
-        </div>
-
-        <div className="toolbar-actions-right" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <span style={{ fontSize: "10px", color: "var(--muted)" }}>Filter Route:</span>
-          <div className="mode-toggle-group">
-            <button
-              className={`toggle-btn ${selectedRouteId === "ALL" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ALL")}
-            >
-              ALL PATHWAYS
-            </button>
-            <button
-              className={`toggle-btn ${selectedRouteId === "ROUTE-B1" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ROUTE-B1")}
-            >
-              GATE B ({gateB.status})
-            </button>
-            <button
-              className={`toggle-btn ${selectedRouteId === "ROUTE-S1" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ROUTE-S1")}
-            >
-              SHELTER
-            </button>
-            <button
-              className={`toggle-btn ${selectedRouteId === "ROUTE-A2" ? "active" : ""}`}
-              onClick={() => setSelectedRouteId("ROUTE-A2")}
-            >
-              GATE A ({gateA.status})
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="evacuation-grid-layout">
-        <div className="panel evacuation-map" style={{ position: "relative", minHeight: "560px", background: "#080c10", overflow: "hidden" }}>
-          <div className="evac-grid" />
-
-          {/* ACTIVE BLAST HAZARD PERIMETER AROUND EPICENTER */}
-          <div
-            className="evac-danger-perimeter"
-            style={{
-              left: `${sourceX}%`,
-              top: `${sourceY}%`,
-              width: "290px",
-              height: "290px",
-            }}
-          >
-            <div className="perimeter-core" />
-            <span className="perimeter-label">⚠️ ACTIVE BLAST HAZARD PERIMETER ({sourceAsset.id})</span>
-          </div>
-
-          {/* SVG VECTOR PATHWAYS */}
-          <svg
-            className="evac-svg-overlay"
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 3 }}
-          >
-            <defs>
-              <linearGradient id="safeRouteGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#32d583" stopOpacity="0.95" />
-                <stop offset="100%" stopColor="#00f0ff" stopOpacity="0.95" />
-              </linearGradient>
-
-              <linearGradient id="blockedRouteGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ff3b30" stopOpacity="0.95" />
-                <stop offset="100%" stopColor="#ff9500" stopOpacity="0.95" />
-              </linearGradient>
-            </defs>
-
-            {/* ROUTE 1: PRIMARY SAFE CORRIDOR (Center -> Gate B in Southeast) */}
-            {(selectedRouteId === "ALL" || selectedRouteId === "ROUTE-B1") && (
-              <g className="route-path-group">
-                <path
-                  d="M 50% 50% Q 68% 65%, 85% 84%"
-                  fill="none"
-                  stroke="url(#safeRouteGrad)"
-                  strokeWidth="3.5"
-                  strokeDasharray="8 5"
-                  className="animated-flow-safe"
-                />
-                <circle cx="85%" cy="84%" r="5" fill="#32d583" />
-                <text x="65%" y="68%" fill="#32d583" fontSize="10" fontWeight="bold">▶ ROUTE B1 (PRIMARY SAFE EGRESS)</text>
-              </g>
-            )}
-
-            {/* ROUTE 2: SAFE SHELTER CORRIDOR (Center -> Shelter Alpha in Northeast) */}
-            {(selectedRouteId === "ALL" || selectedRouteId === "ROUTE-S1") && (
-              <g className="route-path-group">
-                <path
-                  d="M 50% 48% Q 65% 30%, 82% 16%"
-                  fill="none"
-                  stroke="url(#safeRouteGrad)"
-                  strokeWidth="3.5"
-                  strokeDasharray="8 5"
-                  className="animated-flow-safe"
-                />
-                <circle cx="82%" cy="16%" r="5" fill="#32d583" />
-                <text x="66%" y="28%" fill="#32d583" fontSize="10" fontWeight="bold">▶ ROUTE S1 (TO SHELTER)</text>
-              </g>
-            )}
-
-            {/* ROUTE 3: BLOCKED CORRIDOR (Center -> Gate A in North - CUTOFF BY EPICENTER) */}
-            {(selectedRouteId === "ALL" || selectedRouteId === "ROUTE-A2") && (
-              <g className="route-path-group">
-                <path
-                  d="M 45% 48% L 12% 14%"
-                  fill="none"
-                  stroke="url(#blockedRouteGrad)"
-                  strokeWidth="3"
-                  strokeDasharray="6 4"
-                  className="animated-flow-danger"
-                />
-                {/* Hazard Cutoff Cross near Gate A */}
-                <circle cx="24%" cy="25%" r="14" fill="rgba(255, 59, 54, 0.4)" stroke="#ff3b30" strokeWidth="2" />
-                <text x="24%" y="29%" fill="#ff3b30" fontSize="13" fontWeight="bold" textAnchor="middle">✕</text>
-                <text x="28%" y="26%" fill="#ff3b30" fontSize="9" fontWeight="bold">CUTOFF (IN BLAST ZONE)</text>
-              </g>
-            )}
-          </svg>
-
-          {/* FACILITY ASSETS */}
-          {assets.map((asset) => {
-            const isSource = asset.id === sourceId;
-            return (
-              <div
-                key={asset.id}
-                className={`evac-asset-node ${isSource ? "source-epicenter-node" : ""}`}
-                style={{
-                  left: `${asset.x}%`,
-                  top: `${asset.y}%`,
-                }}
-                title={`${asset.id} - ${asset.name}`}
-              >
-                <span className="asset-id-text">{asset.id}</span>
-                {isSource && <span className="epicenter-badge">EPICENTER</span>}
-              </div>
-            );
-          })}
-
-          {/* GATES & ASSEMBLY HAVENS */}
-          {assessedGates.map((g) => (
-            <div
-              key={g.id}
-              className={`evac-gate-card ${g.status === "SAFE" ? "gate-safe" : "gate-danger"}`}
-              style={{
-                left: `${g.x}%`,
-                top: `${g.y}%`,
-              }}
-            >
-              <div className="gate-header">
-                <span className="gate-beacon" />
-                <strong>{g.name}</strong>
-              </div>
-              <small>{g.statusText}</small>
-            </div>
-          ))}
-
-          <div className="evac-title-banner">
-            <span className="live-dot" />
-            <div>
-              <strong>TACTICAL EMERGENCY EVACUATION PATHWAY</strong>
-              <small>GREEN = SAFE CORRIDOR (AWAY FROM PLUME) · RED = BLAST CUTOFF</small>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel evac-routes-panel">
-          <PanelHeading title="Corridor Assessment & Directives" eyebrow="TACTICAL EGRESS MATRIX" />
-
-          {/* EVACUATION QUICK METRICS */}
-          <div className="evac-kpi-grid">
-            <div className="evac-kpi-card">
-              <span>Primary Safe Exit</span>
-              <strong style={{ color: "#32d583" }}>{gateB.status === "SAFE" ? "GATE B (SOUTHEAST)" : "GATE A"}</strong>
-            </div>
-            <div className="evac-kpi-card">
-              <span>Plant Clearing Time</span>
-              <strong>~ 2.0 min (120s)</strong>
-            </div>
-            <div className="evac-kpi-card">
-              <span>Egress Capacity</span>
-              <strong>450 Pers / min</strong>
-            </div>
-            <div className="evac-kpi-card">
-              <span>Path Exposure</span>
-              <strong style={{ color: "#32d583" }}>SAFE (&lt; 2.1 kPa)</strong>
-            </div>
-          </div>
-
-          <div className="routes-list" style={{ marginTop: "12px" }}>
-            {routes.map((r) => {
-              const isSelected = selectedRouteId === r.routeId || selectedRouteId === "ALL";
-              return (
-                <div
-                  key={r.routeId}
-                  className={`route-card ${r.safetyStatus === "SAFE" ? "route-safe" : "route-danger"} ${selectedRouteId === r.routeId ? "selected-route-card" : ""}`}
-                  onClick={() => setSelectedRouteId(r.routeId)}
-                  style={{ cursor: "pointer", opacity: isSelected ? 1 : 0.6 }}
-                >
-                  <div className="route-header">
-                    <div>
-                      <span className="route-id-tag">{r.routeId}</span>
-                      <strong>{r.name}</strong>
-                    </div>
-                    <span className={`badge-status ${r.safetyStatus === "SAFE" ? "safe" : "danger"}`}>
-                      {r.safetyStatus}
-                    </span>
-                  </div>
-
-                  <div className="route-metrics">
-                    <span>Max Heat: <b>{r.maxThermalExposureKwM2} kW/m²</b></span>
-                    <span>Max Overpressure: <b>{r.maxOverpressureKPa} kPa</b></span>
-                    <span>Est. Time: <b>{r.travelTimeSeconds || 120}s</b></span>
-                  </div>
-                  <p className="route-rec">{r.recommendation}</p>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="approach-card" style={{ marginTop: "12px" }}>
-            <span className="card-kicker">FIRST RESPONDER TACTICAL ACCESS</span>
-            <strong>Recommended Incident Approach: {approach.direction} ({approach.headingDegrees}°)</strong>
-            <p>{approach.rationale}</p>
-          </div>
-        </div>
-      </div>
+      <GraphEvacuationMap simulationResult={simulationResult} />
     </div>
   );
 }

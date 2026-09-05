@@ -82,9 +82,8 @@ def simulate_physics(req: PhysicsSimulationRequest):
         # 1. Base blast metrics at time = duration
         final_radius = sedov_radius(duration, req.energyJ, req.airDensityKgM3, req.xi)
         velocity = shock_speed(duration, req.energyJ, req.airDensityKgM3, req.xi)
-        post_shock = 2.0 * req.airDensityKgM3 * (velocity ** 2) / (req.gamma + 1.0)
-        demo_scale = 0.08 * req.ambientPressurePa * (max(req.energyJ, 1.0) / 1e9) * 0.45 / (1.0 + (final_radius / 110.0) * 1.35)
-        front_overpressure_pa = max(post_shock - req.ambientPressurePa, demo_scale)
+        front_eff = max(final_radius, 1.0)
+        front_overpressure_pa = min(500000.0, (8.0 * (float(req.xi) ** 5.0) * float(req.energyJ)) / (25.0 * (float(req.gamma) + 1.0) * (front_eff ** 3.0)))
 
         cx, cy = blast_center(duration, req.windSpeedKmh, req.windDirectionDeg, x0, y0)
         alpha = wind_asymmetry(req.windSpeedKmh)

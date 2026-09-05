@@ -164,12 +164,17 @@ def point_overpressure(
 
     if u >= 0:
         wind_factor = stretch
-        norm = math.sqrt((u / max(stretch, 1e-6)) ** 2 + (v / max(squeeze_cross, 1e-6)) ** 2) / max(radius, 1e-9)
     else:
         wind_factor = squeeze_upwind
-        norm = math.sqrt((u / max(squeeze_upwind, 1e-6)) ** 2 + (v / max(squeeze_cross, 1e-6)) ** 2) / max(radius, 1e-9)
 
-    field_overpressure = front_overpressure * math.exp(-1.45 * norm) / (1.0 + 0.05 * (norm ** 2))
+    if dist_from_origin <= 0.001:
+        field_overpressure = 500000.0  # 500 kPa Epicenter bound
+    else:
+        eff_dist = max(dist_from_origin / max(wind_factor, 0.1), 1.0)
+        numerator = 8.0 * (float(xi) ** 5.0) * float(energy)
+        denominator = 25.0 * (float(gamma) + 1.0) * (eff_dist ** 3.0)
+        raw_p_pa = numerator / max(denominator, 1e-9)
+        field_overpressure = min(500000.0, raw_p_pa)
 
     return field_overpressure, dist_from_origin, wind_factor
 
